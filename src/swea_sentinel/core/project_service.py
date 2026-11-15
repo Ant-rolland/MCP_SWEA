@@ -403,20 +403,41 @@ class ProjectService:
                 ),
             )
             conn.execute(
-                "DELETE FROM dependencies WHERE project_id = ? AND dependency_type LIKE 'manifest:%'",
+                "DELETE FROM dependencies WHERE project_id = ? "
+                "AND (dependency_type LIKE 'manifest:%' OR dependency_type LIKE 'lockfile:%')",
                 (project_id,),
             )
+            dependency_rows = [
+                (
+                    str(uuid4()), project_id, item["path"], dependency,
+                    f"manifest:{item['ecosystem']}",
+                )
+                for item in report["manifests"]
+                for dependency in item["declared_dependency_names"]
+            ]
+            for item in report["manifests"]:
+                if item["ecosystem"] != "node" or item["kind"] != "lockfile":
+                    continue
+                lockfile_path = item["path"]
+                for package in item.get("locked_packages", []):
+                    install_path = package["install_path"]
+                    dependency_rows.append((
+                        str(uuid4()), project_id,
+                        f"{lockfile_path}#{install_path}",
+                        f"{package['name']}@{package['version']}",
+                        "lockfile:npm:package",
+                    ))
+                for edge in item.get("locked_dependency_edges", []):
+                    dependency_rows.append((
+                        str(uuid4()), project_id,
+                        f"{lockfile_path}#{edge['source_install_path']}",
+                        edge["target"],
+                        "lockfile:npm:edge",
+                    ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
-                [
-                    (
-                        str(uuid4()), project_id, item["path"], dependency,
-                        f"manifest:{item['ecosystem']}",
-                    )
-                    for item in report["manifests"]
-                    for dependency in item["declared_dependency_names"]
-                ],
+                dependency_rows,
             )
             conn.executemany(
                 "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
