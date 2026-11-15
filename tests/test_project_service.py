@@ -111,3 +111,38 @@ def test_dependency_analysis_persists_manifest_edges_and_evidence(tmp_path):
         ("pyproject.toml", "httpx", "manifest:python"),
     }
     assert evidence == 2
+
+
+
+def test_dependency_analysis_persists_npm_locked_packages_and_edges(tmp_path):
+    project = tmp_path / "npm-project"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^19"}}', encoding="utf-8"
+    )
+    (project / "package-lock.json").write_text(
+        '{"name":"npm-project","lockfileVersion":3,"packages":'
+        '{"":{"dependencies":{"react":"^19"}},'
+        '"node_modules/react":{"version":"19.0.0"},'
+        '"node_modules/react-dom":{"version":"19.0.0","dependencies":{"react":"^19"}}}}',
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["manifest_count"] == 2
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? ORDER BY dependency_type, source_path, target_name",
+            (registered.project_id,),
+        ).fetchall()
+    assert {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows} == {
+        ("package.json", "react", "manifest:node"),
+        ("package-lock.json#node_modules/react", "react@19.0.0", "lockfile:npm:package"),
+        ("package-lock.json#node_modules/react-dom", "react-dom@19.0.0", "lockfile:npm:package"),
+        ("package-lock.json#node_modules/react-dom", "react", "lockfile:npm:edge"),
+    }
