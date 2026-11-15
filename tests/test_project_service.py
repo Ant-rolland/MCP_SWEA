@@ -76,3 +76,38 @@ def test_unknown_project_is_rejected(tmp_path):
         assert "Unknown project_id" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+
+def test_dependency_analysis_persists_manifest_edges_and_evidence(tmp_path):
+    project = tmp_path / "multi-ecosystem"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^19"}}', encoding="utf-8"
+    )
+    (project / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["httpx>=0.27"]\n', encoding="utf-8"
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.status.value == "completed"
+    assert result.result["manifest_count"] == 2
+    with db.connect() as conn:
+        edges = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? ORDER BY dependency_type",
+            (registered.project_id,),
+        ).fetchall()
+        evidence = conn.execute(
+            "SELECT COUNT(*) FROM evidence WHERE project_id = ? AND kind = 'dependency_manifest'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert {(row["source_path"], row["target_name"], row["dependency_type"]) for row in edges} == {
+        ("package.json", "react", "manifest:node"),
+        ("pyproject.toml", "httpx", "manifest:python"),
+    }
+    assert evidence == 2
