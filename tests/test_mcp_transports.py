@@ -24,6 +24,7 @@ except ImportError:  # Compatibility with earlier v1 SDK releases.
 EXPECTED_TOOLS = {
     "swea_initialize_project",
     "swea_analyze_project",
+    "swea_analyze_architecture",
     "swea_get_project_context",
     "swea_get_project_status",
     "swea_refresh_project_index",
