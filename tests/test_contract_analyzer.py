@@ -34,3 +34,16 @@ def test_reports_invalid_contract_file_without_executing_code(tmp_path):
     assert report["contract_count"] == 0
     assert report["findings"][0]["code"] == "CONTRACT_PARSE_ERROR"
     assert report["files_inspected"] == 1
+
+
+def test_yaml_alias_cycle_does_not_recurse_forever(tmp_path):
+    (tmp_path / "cyclic.yaml").write_text(
+        "$schema: https://json-schema.org/draft/2020-12/schema\n"
+        "properties: &props\n  self: *props\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["contract_count"] == 1
+    assert report["json_schema_count"] == 1
