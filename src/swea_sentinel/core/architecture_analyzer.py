@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -121,7 +122,9 @@ def analyze_python_imports(
                 if match and source_module and source_module != match:
                     local_edges.add((relative, modules[match], target))
                 elif not match and target:
-                    external_imports.add(target.split(".")[0])
+                    root_name = target.split(".")[0]
+                    if root_name not in sys.stdlib_module_names:
+                        external_imports.add(root_name)
 
     return {
         "analysis_level": "python_static_import_graph",
