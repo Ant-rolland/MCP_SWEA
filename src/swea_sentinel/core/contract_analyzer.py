@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -98,42 +99,48 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
     contracts: list[dict[str, Any]] = []
     inspected = 0
+    files_considered = 0
     total_bytes = 0
     truncated_reason: str | None = None
 
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink() or path.suffix.lower() not in CONTRACT_SUFFIXES:
-            continue
-        if any(part in IGNORED_DIRS for part in path.parts):
-            continue
-        if inspected >= MAX_FILES:
-            truncated_reason = "maximum_file_count"
-            break
-        relative = path.relative_to(root).as_posix()
-        try:
-            size = path.stat().st_size
-            if size > MAX_FILE_BYTES:
+    for current, dirs, filenames in os.walk(root, followlinks=False):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in IGNORED_DIRS and not (Path(current) / name).is_symlink()
+        )
+        for filename in sorted(filenames):
+            path = Path(current) / filename
+            if path.is_symlink() or path.suffix.lower() not in CONTRACT_SUFFIXES:
+                continue
+            files_considered += 1
+            if files_considered > MAX_FILES:
+                truncated_reason = "maximum_file_count"
+                break
+            relative = path.relative_to(root).as_posix()
+            try:
+                size = path.stat().st_size
+                if size > MAX_FILE_BYTES:
+                    findings.append({
+                        "code": "CONTRACT_FILE_TOO_LARGE", "severity": "info",
+                        "path": relative,
+                        "message": "Contract candidate skipped because it exceeds the per-file size limit.",
+                    })
+                    continue
+                if total_bytes + size > MAX_TOTAL_BYTES:
+                    truncated_reason = "maximum_total_bytes"
+                    break
+                raw = path.read_bytes()
+                digest = hashlib.sha256(raw).hexdigest()
+                document = _load_document(path)
+                inspected += 1
+                total_bytes += size
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
                 findings.append({
-                    "code": "CONTRACT_FILE_TOO_LARGE", "severity": "info",
+                    "code": "CONTRACT_PARSE_ERROR", "severity": "medium",
                     "path": relative,
-                    "message": "Contract candidate skipped because it exceeds the per-file size limit.",
+                    "message": f"Contract candidate could not be parsed ({type(exc).__name__}).",
                 })
                 continue
-            if total_bytes + size > MAX_TOTAL_BYTES:
-                truncated_reason = "maximum_total_bytes"
-                break
-            raw = path.read_bytes()
-            digest = hashlib.sha256(raw).hexdigest()
-            document = _load_document(path)
-            inspected += 1
-            total_bytes += size
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
-            findings.append({
-                "code": "CONTRACT_PARSE_ERROR", "severity": "medium",
-                "path": relative,
-                "message": f"Contract candidate could not be parsed ({type(exc).__name__}).",
-            })
-            continue
 
         if _is_openapi(document):
             version = str(document.get("openapi") or document.get("swagger"))
@@ -208,6 +215,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         "contract_count": len(contracts),
         "openapi_count": sum(item["kind"] == "openapi" for item in contracts),
         "json_schema_count": sum(item["kind"] == "json_schema" for item in contracts),
+        "files_considered": files_considered,
         "files_inspected": inspected,
         "bytes_inspected": total_bytes,
         "truncated": truncated_reason is not None,
