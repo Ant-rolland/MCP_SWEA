@@ -237,7 +237,10 @@ class ProjectService:
                     status.value, now, json.dumps(report, separators=(",", ":")),
                 ),
             )
-            conn.execute("DELETE FROM dependencies WHERE project_id = ?", (project_id,))
+            conn.execute(
+                "DELETE FROM dependencies WHERE project_id = ? AND dependency_type = 'python_import'",
+                (project_id,),
+            )
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
@@ -365,6 +368,75 @@ class ProjectService:
             duration_ms=duration,
         )
 
+
+    def analyze_dependencies(self, project_id: str) -> ToolResult:
+        """Discover and persist bounded dependency manifests without resolving packages."""
+        from swea_sentinel.core.dependency_analyzer import analyze_dependency_manifests
+
+        _, root = self._project(project_id)
+        report = analyze_dependency_manifests(root, self.index_settings)
+        assessment_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        evidence = [
+            Evidence(
+                kind="dependency_manifest",
+                description=f"Static {item['ecosystem']} {item['kind']} discovered",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=item["path"],
+                sha256=item["sha256"],
+            )
+            for item in report["manifests"]
+        ]
+        status = (
+            ExecutionStatus.PARTIAL
+            if report["truncated"] or report["parse_errors"]
+            else ExecutionStatus.COMPLETED
+        )
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO assessments(assessment_id,project_id,task_id,domain,status,created_at,payload_json) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    assessment_id, project_id, None, SWEADomain.ARCHITECTURE.value,
+                    status.value, now, json.dumps(report, separators=(",", ":")),
+                ),
+            )
+            conn.execute(
+                "DELETE FROM dependencies WHERE project_id = ? AND dependency_type LIKE 'manifest:%'",
+                (project_id,),
+            )
+            conn.executemany(
+                "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
+                "VALUES(?,?,?,?,?)",
+                [
+                    (
+                        str(uuid4()), project_id, item["path"], dependency,
+                        f"manifest:{item['ecosystem']}",
+                    )
+                    for item in report["manifests"]
+                    for dependency in item["declared_dependency_names"]
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        item.evidence_id, project_id, item.kind, item.sha256,
+                        item.model_dump_json(), now,
+                    )
+                    for item in evidence
+                ],
+            )
+        return ToolResult(
+            project_id=project_id,
+            status=status,
+            result={"assessment_id": assessment_id, **report},
+            evidence=evidence,
+            limitations=list(report["limitations"]),
+            duration_ms=int(report["duration_ms"]),
+        )
 
     def analyze_contracts(self, project_id: str) -> ToolResult:
         """Discover and assess bounded OpenAPI and JSON Schema documents."""
