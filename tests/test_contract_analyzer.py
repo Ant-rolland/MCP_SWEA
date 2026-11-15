@@ -166,3 +166,39 @@ def test_openapi_checks_path_template_parameters(tmp_path):
 
     assert "OPENAPI_PATH_PARAMETER_MISSING" in codes
     assert "OPENAPI_PATH_PARAMETER_NOT_REQUIRED" in codes
+
+
+
+def test_openapi_checks_operation_responses_and_inline_descriptions(tmp_path):
+    (tmp_path / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/missing": {
+                "get": {},
+            },
+            "/invalid": {
+                "get": {"responses": {"200": "ok"}},
+            },
+            "/undocumented": {
+                "get": {"responses": {"200": {"content": {}}}},
+            },
+            "/valid": {
+                "get": {"responses": {
+                    "200": {"description": "successful response"},
+                    "default": {"$ref": "#/components/responses/Failure"},
+                }},
+            },
+        },
+        "components": {
+            "responses": {"Failure": {"description": "failure"}}
+        },
+    }), encoding="utf-8")
+
+    report = analyze_contracts(tmp_path)
+    codes = [finding["code"] for finding in report["findings"]]
+
+    assert "OPENAPI_RESPONSES_MISSING" in codes
+    assert "OPENAPI_RESPONSE_INVALID" in codes
+    assert "OPENAPI_RESPONSE_DESCRIPTION_MISSING" in codes
+    assert codes.count("OPENAPI_RESPONSES_MISSING") == 1
