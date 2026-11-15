@@ -10,9 +10,11 @@ from typing import Any
 import yaml
 
 CONTRACT_SUFFIXES = {".json", ".yaml", ".yml"}
+HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 MAX_FILES = 500
 MAX_FILE_BYTES = 1_000_000
 MAX_TOTAL_BYTES = 10_000_000
+IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "dist", "build"}
 
 
 def _load_document(path: Path) -> Any:
@@ -38,7 +40,33 @@ def _is_json_schema(document: Any) -> bool:
     )
 
 
+def _walk_refs(document: Any) -> list[str]:
+    """Collect $ref strings without recursion; tolerate YAML alias cycles."""
+    refs: list[str] = []
+    pending: list[Any] = [document]
+    visited_containers: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            identity = id(value)
+            if identity in visited_containers:
+                continue
+            visited_containers.add(identity)
+            ref = value.get("$ref")
+            if isinstance(ref, str):
+                refs.append(ref)
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            identity = id(value)
+            if identity in visited_containers:
+                continue
+            visited_containers.add(identity)
+            pending.extend(value)
+    return refs
+
+
 def _resolve_local_ref(document: Any, reference: str) -> bool:
+    """Resolve a local JSON Pointer fragment; external refs are out of scope."""
     if not reference.startswith("#/"):
         return True
     current = document
@@ -48,6 +76,20 @@ def _resolve_local_ref(document: Any, reference: str) -> bool:
             return False
         current = current[key]
     return True
+
+
+def _append_unresolved_refs(
+    findings: list[dict[str, str]], *, path: str, refs: list[str], document: Any, code: str
+) -> int:
+    unresolved = [ref for ref in refs if ref.startswith("#/") and not _resolve_local_ref(document, ref)]
+    for ref in unresolved:
+        findings.append({
+            "code": code,
+            "severity": "high",
+            "path": path,
+            "message": f"Local reference does not resolve: {ref}",
+        })
+    return len(unresolved)
 
 
 def analyze_contracts(root: Path) -> dict[str, Any]:
@@ -62,17 +104,18 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.is_symlink() or path.suffix.lower() not in CONTRACT_SUFFIXES:
             continue
-        if any(part in {".git", ".venv", "venv", "node_modules", "dist", "build"} for part in path.parts):
+        if any(part in IGNORED_DIRS for part in path.parts):
             continue
         if inspected >= MAX_FILES:
             truncated_reason = "maximum_file_count"
             break
+        relative = path.relative_to(root).as_posix()
         try:
             size = path.stat().st_size
             if size > MAX_FILE_BYTES:
                 findings.append({
                     "code": "CONTRACT_FILE_TOO_LARGE", "severity": "info",
-                    "path": path.relative_to(root).as_posix(),
+                    "path": relative,
                     "message": "Contract candidate skipped because it exceeds the per-file size limit.",
                 })
                 continue
@@ -87,12 +130,11 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
             findings.append({
                 "code": "CONTRACT_PARSE_ERROR", "severity": "medium",
-                "path": path.relative_to(root).as_posix(),
+                "path": relative,
                 "message": f"Contract candidate could not be parsed ({type(exc).__name__}).",
             })
             continue
 
-        relative = path.relative_to(root).as_posix()
         if _is_openapi(document):
             version = str(document.get("openapi") or document.get("swagger"))
             paths = document.get("paths") if isinstance(document.get("paths"), dict) else {}
@@ -101,15 +143,28 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                 if not isinstance(path_item, dict):
                     continue
                 for method, operation in path_item.items():
-                    if method.lower() in {"get", "put", "post", "delete", "options", "head", "patch", "trace"} and isinstance(operation, dict):
+                    if isinstance(method, str) and method.lower() in HTTP_METHODS and isinstance(operation, dict):
                         operations.append((str(route), method.lower(), operation))
+
             if version.startswith("3.") and not isinstance(document.get("info"), dict):
                 findings.append({
                     "code": "OPENAPI_INFO_MISSING", "severity": "medium", "path": relative,
                     "message": "OpenAPI document has no info object.",
                 })
-            operation_ids = [op.get("operationId") for _, _, op in operations if op.get("operationId")]
-            if len(operation_ids) != len(set(operation_ids)):
+
+            operation_ids = [
+                operation.get("operationId")
+                for _, _, operation in operations
+                if "operationId" in operation
+            ]
+            invalid_ids = [value for value in operation_ids if not isinstance(value, str) or not value.strip()]
+            if invalid_ids:
+                findings.append({
+                    "code": "OPENAPI_INVALID_OPERATION_ID", "severity": "medium", "path": relative,
+                    "message": "One or more operationId values are not non-empty strings.",
+                })
+            valid_ids = [value for value in operation_ids if isinstance(value, str) and value.strip()]
+            if len(valid_ids) != len(set(valid_ids)):
                 findings.append({
                     "code": "OPENAPI_DUPLICATE_OPERATION_ID", "severity": "medium", "path": relative,
                     "message": "OpenAPI document contains duplicate operationId values.",
@@ -119,43 +174,31 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                     "code": "OPENAPI_NO_OPERATIONS", "severity": "low", "path": relative,
                     "message": "OpenAPI document declares no HTTP operations under paths.",
                 })
+
+            refs = _walk_refs(document)
+            unresolved_refs = _append_unresolved_refs(
+                findings, path=relative, refs=refs, document=document,
+                code="OPENAPI_UNRESOLVED_LOCAL_REF",
+            )
+            components = document.get("components")
+            schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
             contracts.append({
                 "path": relative, "kind": "openapi", "version": version,
                 "operation_count": len(operations),
-                "schema_count": len((document.get("components") or {}).get("schemas", {}))
-                    if isinstance(document.get("components"), dict) else 0,
+                "schema_count": len(schemas) if isinstance(schemas, dict) else 0,
+                "reference_count": len(refs),
+                "unresolved_local_refs": unresolved_refs,
                 "sha256": digest,
             })
         elif _is_json_schema(document):
-            refs: list[str] = []
-            pending: list[Any] = [document]
-            visited_containers: set[int] = set()
-            while pending:
-                value = pending.pop()
-                if isinstance(value, dict):
-                    identity = id(value)
-                    if identity in visited_containers:
-                        continue
-                    visited_containers.add(identity)
-                    ref = value.get("$ref")
-                    if isinstance(ref, str):
-                        refs.append(ref)
-                    pending.extend(value.values())
-                elif isinstance(value, list):
-                    identity = id(value)
-                    if identity in visited_containers:
-                        continue
-                    visited_containers.add(identity)
-                    pending.extend(value)
-            unresolved = [ref for ref in refs if ref.startswith("#/") and not _resolve_local_ref(document, ref)]
-            for ref in unresolved:
-                findings.append({
-                    "code": "JSON_SCHEMA_UNRESOLVED_LOCAL_REF", "severity": "high",
-                    "path": relative, "message": f"Local JSON Schema reference does not resolve: {ref}",
-                })
+            refs = _walk_refs(document)
+            unresolved_refs = _append_unresolved_refs(
+                findings, path=relative, refs=refs, document=document,
+                code="JSON_SCHEMA_UNRESOLVED_LOCAL_REF",
+            )
             contracts.append({
                 "path": relative, "kind": "json_schema",
-                "reference_count": len(refs), "unresolved_local_refs": len(unresolved),
+                "reference_count": len(refs), "unresolved_local_refs": unresolved_refs,
                 "sha256": digest,
             })
 
