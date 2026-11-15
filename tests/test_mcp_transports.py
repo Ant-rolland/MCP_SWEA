@@ -25,6 +25,7 @@ EXPECTED_TOOLS = {
     "swea_initialize_project",
     "swea_analyze_project",
     "swea_analyze_architecture",
+    "swea_analyze_contracts",
     "swea_check_blast_radius",
     "swea_get_project_context",
     "swea_get_project_status",
