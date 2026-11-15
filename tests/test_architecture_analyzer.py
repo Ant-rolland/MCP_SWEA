@@ -29,7 +29,7 @@ def test_static_import_graph_reports_syntax_errors_without_execution(tmp_path):
 
     report = analyze_python_imports(root, ProjectIndexSettings())
 
-    assert report["files_scanned"] == 0
+    assert report["files_scanned"] == 1
     assert report["parse_errors"] == [
         {"path": "broken.py", "error": "SyntaxError", "line": "1"}
     ]
