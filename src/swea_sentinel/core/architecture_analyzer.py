@@ -122,9 +122,57 @@ def analyze_python_imports(
                 if match and source_module and source_module != match:
                     local_edges.add((relative, modules[match], target))
                 elif not match and target:
+                    # A namespace-package prefix is local even without __init__.py.
+                    is_local_prefix = any(
+                        module.startswith(target + ".") for module in modules
+                    )
                     root_name = target.split(".")[0]
-                    if root_name not in sys.stdlib_module_names:
+                    if not is_local_prefix and root_name not in sys.stdlib_module_names:
                         external_imports.add(root_name)
+
+    adjacency: dict[str, set[str]] = {}
+    reverse_adjacency: dict[str, set[str]] = {}
+    for source, target, _ in local_edges:
+        adjacency.setdefault(source, set()).add(target)
+        adjacency.setdefault(target, set())
+        reverse_adjacency.setdefault(target, set()).add(source)
+        reverse_adjacency.setdefault(source, set())
+
+    # Iterative Kosaraju SCC detection avoids recursion depth failures on large repos.
+    visited: set[str] = set()
+    finish_order: list[str] = []
+    for start_node in sorted(adjacency):
+        if start_node in visited:
+            continue
+        visited.add(start_node)
+        stack: list[tuple[str, Any]] = [(start_node, iter(sorted(adjacency[start_node])))]
+        while stack:
+            node, children = stack[-1]
+            child = next(children, None)
+            if child is None:
+                finish_order.append(node)
+                stack.pop()
+            elif child not in visited:
+                visited.add(child)
+                stack.append((child, iter(sorted(adjacency[child]))))
+
+    assigned: set[str] = set()
+    import_cycles: list[list[str]] = []
+    for start_node in reversed(finish_order):
+        if start_node in assigned:
+            continue
+        component: list[str] = []
+        pending = [start_node]
+        assigned.add(start_node)
+        while pending:
+            node = pending.pop()
+            component.append(node)
+            for parent in reverse_adjacency.get(node, set()):
+                if parent not in assigned:
+                    assigned.add(parent)
+                    pending.append(parent)
+        if len(component) > 1:
+            import_cycles.append(sorted(component))
 
     return {
         "analysis_level": "python_static_import_graph",
@@ -136,6 +184,7 @@ def analyze_python_imports(
             for source, target, imported in sorted(local_edges)
         ],
         "external_import_roots": sorted(external_imports),
+        "candidate_import_cycles": sorted(import_cycles),
         "parse_errors": parse_errors,
         "truncated": truncated_reason is not None,
         "truncated_reason": truncated_reason,
