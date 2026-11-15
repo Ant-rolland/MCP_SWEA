@@ -33,3 +33,17 @@ def test_static_import_graph_reports_syntax_errors_without_execution(tmp_path):
     assert report["parse_errors"] == [
         {"path": "broken.py", "error": "SyntaxError", "line": "1"}
     ]
+
+
+def test_static_import_graph_detects_candidate_cycles_and_namespace_packages(tmp_path):
+    root = tmp_path / "project"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "alpha.py").write_text(
+        "import app.beta\nfrom app import beta\n", encoding="utf-8"
+    )
+    (root / "app" / "beta.py").write_text("import app.alpha\n", encoding="utf-8")
+
+    report = analyze_python_imports(root, ProjectIndexSettings())
+
+    assert report["candidate_import_cycles"] == [["app/alpha.py", "app/beta.py"]]
+    assert "app" not in report["external_import_roots"]
