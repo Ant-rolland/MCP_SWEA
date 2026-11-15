@@ -364,3 +364,82 @@ class ProjectService:
             ],
             duration_ms=duration,
         )
+
+
+    def analyze_contracts(self, project_id: str) -> ToolResult:
+        """Discover and assess bounded OpenAPI and JSON Schema documents."""
+        from swea_sentinel.core.contract_analyzer import analyze_contracts
+
+        _, root = self._project(project_id)
+        report = analyze_contracts(root)
+        assessment_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        evidence = [
+            Evidence(
+                kind="api_data_contract",
+                description=f"Static {item['kind']} contract document inspected",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=item["path"],
+                sha256=item["sha256"],
+            )
+            for item in report["contracts"]
+        ]
+        severity_map = {"info": "info", "low": "low", "medium": "medium", "high": "high", "critical": "critical"}
+        findings = report["findings"]
+        status = (
+            ExecutionStatus.PARTIAL
+            if report["truncated"] or findings
+            else ExecutionStatus.COMPLETED
+        )
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO assessments(assessment_id,project_id,task_id,domain,status,created_at,payload_json) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    assessment_id, project_id, None, SWEADomain.DATA_CONTRACTS.value,
+                    status.value, now, json.dumps(report, separators=(",", ":")),
+                ),
+            )
+            conn.executemany(
+                "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        item.evidence_id, project_id, item.kind, item.sha256,
+                        item.model_dump_json(), now,
+                    )
+                    for item in evidence
+                ],
+            )
+            for finding in findings:
+                payload = {
+                    "finding_id": str(uuid4()),
+                    "domain": SWEADomain.DATA_CONTRACTS.value,
+                    "code": finding["code"],
+                    "severity": severity_map[finding["severity"]],
+                    "confidence": "HIGH_CONFIDENCE",
+                    "title": finding["message"][:300],
+                    "location": finding["path"],
+                    "evidence_ids": [],
+                    "recommendation": "Review the reported contract structure and correct it if the document is intended to be authoritative.",
+                    "status": "open",
+                }
+                conn.execute(
+                    "INSERT INTO findings(finding_id,project_id,assessment_id,domain,code,severity,confidence,status,payload_json) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        payload["finding_id"], project_id, assessment_id,
+                        payload["domain"], payload["code"], payload["severity"],
+                        payload["confidence"], payload["status"],
+                        json.dumps(payload, separators=(",", ":")),
+                    ),
+                )
+        return ToolResult(
+            project_id=project_id,
+            status=status,
+            result={"assessment_id": assessment_id, **report},
+            evidence=evidence,
+            limitations=list(report["limitations"]),
+            duration_ms=int(report["duration_ms"]),
+        )
