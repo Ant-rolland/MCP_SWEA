@@ -20,6 +20,8 @@ def test_contract_assessment_persists_findings_and_source_evidence(tmp_path):
     assert result.status.value == "partial"
     assert result.result["analysis_level"] == "static_api_data_contract_discovery"
     assert len(result.evidence) == 1
+    assert len(result.findings) == 1
+    assert result.findings[0].evidence_ids == [result.evidence[0].evidence_id]
     with database.connect() as conn:
         assessment = conn.execute(
             "SELECT domain FROM assessments WHERE project_id = ?", (registered.project_id,)
@@ -36,3 +38,8 @@ def test_contract_assessment_persists_findings_and_source_evidence(tmp_path):
     assert finding["severity"] == "high"
     assert finding["confidence"] == "HIGH_CONFIDENCE"
     assert evidence_count == 1
+    with database.connect() as conn:
+        finding_payload = conn.execute(
+            "SELECT payload_json FROM findings WHERE project_id = ?", (registered.project_id,)
+        ).fetchone()["payload_json"]
+    assert result.evidence[0].evidence_id in finding_payload
