@@ -103,6 +103,75 @@ def _dependency_names(path: Path, ecosystem: str, content: bytes) -> list[str]:
     return sorted(names)
 
 
+def _npm_package_name(install_path: str, metadata: dict[str, Any]) -> str | None:
+    declared = metadata.get("name")
+    if isinstance(declared, str) and declared:
+        return declared
+    parts = install_path.split("/")
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index] == "node_modules" and index + 1 < len(parts):
+            if parts[index + 1].startswith("@") and index + 2 < len(parts):
+                return parts[index + 1] + "/" + parts[index + 2]
+            return parts[index + 1]
+    return None
+
+
+def _parse_npm_lockfile(content: bytes) -> dict[str, Any]:
+    """Read npm lockfile v1-v3 package/version metadata and direct lockfile edges."""
+    data = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(data, dict):
+        raise ValueError("npm lockfile root must be an object")
+    lock_version = data.get("lockfileVersion", 1)
+    if not isinstance(lock_version, int) or lock_version not in {1, 2, 3}:
+        raise ValueError("unsupported npm lockfile version")
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    if lock_version >= 2 and isinstance(data.get("packages"), dict):
+        package_map = data["packages"]
+        names_by_path: dict[str, str] = {}
+        for install_path, metadata in sorted(package_map.items()):
+            if not install_path or not isinstance(metadata, dict):
+                continue
+            name = _npm_package_name(str(install_path), metadata)
+            version = metadata.get("version")
+            if not name or not isinstance(version, str):
+                continue
+            names_by_path[str(install_path)] = name
+            packages.append({"name": name, "version": version, "install_path": str(install_path)})
+        for install_path, metadata in sorted(package_map.items()):
+            if not install_path or not isinstance(metadata, dict):
+                continue
+            dependencies = metadata.get("dependencies", {})
+            if not isinstance(dependencies, dict):
+                continue
+            source_name = names_by_path.get(str(install_path))
+            if not source_name:
+                continue
+            for target_name in sorted(dependencies):
+                edges.append({"source": source_name, "target": str(target_name),
+                              "source_install_path": str(install_path)})
+    else:
+        def visit_legacy(dependencies: Any, parent_path: str = "") -> None:
+            if not isinstance(dependencies, dict):
+                return
+            for name, metadata in sorted(dependencies.items()):
+                if not isinstance(metadata, dict):
+                    continue
+                version = metadata.get("version")
+                install_path = (parent_path + "/node_modules/" + str(name)) if parent_path else ("node_modules/" + str(name))
+                if isinstance(version, str):
+                    packages.append({"name": str(name), "version": version, "install_path": install_path})
+                child_dependencies = metadata.get("dependencies", {})
+                if isinstance(child_dependencies, dict):
+                    for child_name in sorted(child_dependencies):
+                        edges.append({"source": str(name), "target": str(child_name),
+                                      "source_install_path": install_path})
+                visit_legacy(child_dependencies, install_path)
+        visit_legacy(data.get("dependencies", {}))
+    return {"lockfile_version": lock_version, "locked_packages": packages,
+            "locked_package_count": len(packages), "locked_dependency_edges": edges,
+            "locked_dependency_edge_count": len(edges)}
+
 def _classify(name: str) -> tuple[str, str] | None:
     if name == "package.json":
         return "node", "manifest"
@@ -186,12 +255,15 @@ def analyze_dependency_manifests(
                 ecosystem, kind = classified
                 digest = hashlib.sha256(content).hexdigest()
                 dependencies: list[str] = []
+                lockfile_details: dict[str, Any] = {}
                 parse_error: str | None = None
-                if kind == "manifest":
-                    try:
+                try:
+                    if kind == "manifest":
                         dependencies = _dependency_names(path, ecosystem, content)
-                    except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError):
-                        parse_error = "invalid_manifest"
+                    elif ecosystem == "node" and path.name in {"package-lock.json", "npm-shrinkwrap.json"}:
+                        lockfile_details = _parse_npm_lockfile(content)
+                except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError):
+                    parse_error = "invalid_manifest" if kind == "manifest" else "invalid_lockfile"
                 manifests.append({
                     "path": relative,
                     "ecosystem": ecosystem,
@@ -199,6 +271,7 @@ def analyze_dependency_manifests(
                     "sha256": digest,
                     "declared_dependency_names": dependencies,
                     "declared_dependency_count": len(dependencies),
+                    **lockfile_details,
                     "parse_error": parse_error,
                 })
             except OSError:
@@ -221,7 +294,7 @@ def analyze_dependency_manifests(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Discovery is static and does not install packages, invoke package managers, or execute project code.",
-            "Lockfiles are identified and hashed but are not expanded into resolved dependency graphs.",
+            "npm package-lock v1-v3 files expose locked package versions and declared lockfile edges; other lockfiles are identified and hashed but not expanded.",
             "Gradle and Maven manifests are identified but dependency declarations are not yet parsed.",
             "Declared dependency names do not establish versions, reachability, vulnerability status, or runtime usage.",
             "Only the listed manifest formats are recognized; custom build systems may be missed.",
