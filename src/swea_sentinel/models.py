@@ -108,6 +108,10 @@ class ProjectReferenceInput(ContractModel):
     project_id: str = Field(min_length=1, max_length=64)
 
 
+class ProjectImpactInput(ProjectReferenceInput):
+    target_path: str = Field(min_length=1, max_length=4096)
+
+
 class Task(ContractModel):
     task_id: str = Field(default_factory=lambda: str(uuid4()))
     project_id: str
