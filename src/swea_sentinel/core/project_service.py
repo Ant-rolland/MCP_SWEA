@@ -10,7 +10,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from swea_sentinel.config import ProjectIndexSettings
-from swea_sentinel.models import ExecutionStatus, ProjectStatus, ToolResult
+from swea_sentinel.core.architecture_analyzer import analyze_python_imports
+from swea_sentinel.models import (
+    DataOrigin, Evidence, ExecutionStatus, ProjectStatus, QualificationStatus,
+    SWEADomain, ToolResult,
+)
 from swea_sentinel.persistence.database import Database
 
 IGNORED_DIRS = {
@@ -197,6 +201,71 @@ class ProjectService:
             "latest_snapshot": dict(latest) if latest else None,
             "file_types": [dict(item) for item in types],
         }
+
+
+    def analyze_architecture(self, project_id: str) -> ToolResult:
+        """Persist a bounded, read-only static Python import graph assessment."""
+        _, root = self._project(project_id)
+        report = analyze_python_imports(root, self.index_settings)
+        assessment_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        file_hashes = report.pop("file_hashes")
+        evidence = [
+            Evidence(
+                kind="python_source_file",
+                description="Python source file inspected for static import relationships",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=relative,
+                sha256=digest,
+            )
+            for relative, digest in sorted(file_hashes.items())
+        ]
+        status = (
+            ExecutionStatus.PARTIAL
+            if report["truncated"] or report["parse_errors"]
+            else ExecutionStatus.COMPLETED
+        )
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO assessments(assessment_id,project_id,task_id,domain,status,created_at,payload_json) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    assessment_id, project_id, None, SWEADomain.ARCHITECTURE.value,
+                    status.value, now, json.dumps(report, separators=(",", ":")),
+                ),
+            )
+            conn.execute("DELETE FROM dependencies WHERE project_id = ?", (project_id,))
+            conn.executemany(
+                "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
+                "VALUES(?,?,?,?,?)",
+                [
+                    (
+                        str(uuid4()), project_id, edge["source"], edge["target"],
+                        "python_import",
+                    )
+                    for edge in report["local_dependency_edges"]
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        item.evidence_id, project_id, item.kind, item.sha256,
+                        item.model_dump_json(), now,
+                    )
+                    for item in evidence
+                ],
+            )
+        return ToolResult(
+            project_id=project_id,
+            status=status,
+            result={"assessment_id": assessment_id, **report},
+            evidence=evidence,
+            limitations=list(report["limitations"]),
+            duration_ms=int(report["duration_ms"]),
+        )
 
     def analyze(self, project_id: str) -> ToolResult:
         context = self.context(project_id)
