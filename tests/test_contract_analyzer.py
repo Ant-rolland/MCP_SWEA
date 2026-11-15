@@ -1,5 +1,6 @@
 import json
 
+from swea_sentinel.core import contract_analyzer
 from swea_sentinel.core.contract_analyzer import analyze_contracts
 
 
@@ -85,3 +86,21 @@ def test_openapi_detects_duplicate_operation_ids_without_crashing_on_bad_values(
     )
     report = analyze_contracts(tmp_path)
     assert any(f["code"] == "OPENAPI_DUPLICATE_OPERATION_ID" for f in report["findings"])
+
+
+
+def test_contract_scan_prunes_generated_dirs_and_bounds_candidates(tmp_path, monkeypatch):
+    generated = tmp_path / "node_modules"
+    generated.mkdir()
+    (generated / "ignored.json").write_text('{"$schema": "ignored"}', encoding="utf-8")
+    (tmp_path / "one.json").write_text('{"$schema": "one"}', encoding="utf-8")
+    (tmp_path / "two.json").write_text('{"$schema": "two"}', encoding="utf-8")
+    monkeypatch.setattr(contract_analyzer, "MAX_FILES", 1)
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["files_considered"] == 2
+    assert report["files_inspected"] == 1
+    assert report["truncated"] is True
+    assert report["truncated_reason"] == "maximum_file_count"
+    assert all(item["path"] != "node_modules/ignored.json" for item in report["contracts"])
