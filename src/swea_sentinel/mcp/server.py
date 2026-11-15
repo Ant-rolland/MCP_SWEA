@@ -116,6 +116,13 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
 
 
     @mcp.tool()
+    @_audit_tool(database, "swea_analyze_contracts")
+    def swea_analyze_contracts(project_id: str) -> dict[str, Any]:
+        """Discover OpenAPI and JSON Schema contracts in a registered project."""
+        payload = ProjectReferenceInput(project_id=project_id)
+        return service.analyze_contracts(payload.project_id).model_dump(mode="json")
+
+    @mcp.tool()
     @_audit_tool(database, "swea_check_blast_radius")
     def swea_check_blast_radius(project_id: str, target_path: str) -> dict[str, Any]:
         """List direct and transitive Python dependents of a project-relative file."""
