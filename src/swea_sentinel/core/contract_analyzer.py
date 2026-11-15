@@ -108,7 +108,7 @@ def _append_path_parameter_findings(
     if not isinstance(path_parameters, list):
         path_parameters = []
 
-    for method in HTTP_METHODS:
+    for method in sorted(HTTP_METHODS):
         operation = path_item.get(method)
         if not isinstance(operation, dict):
             continue
