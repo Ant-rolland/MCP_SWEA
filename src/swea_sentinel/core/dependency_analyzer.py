@@ -22,6 +22,8 @@ MAX_MANIFESTS = 500
 MAX_MANIFEST_BYTES = 1_000_000
 MAX_TOTAL_BYTES = 10_000_000
 MAX_SCAN_SECONDS = 5.0
+MAX_LOCKED_PACKAGES = 10_000
+MAX_LOCKED_EDGES = 20_000
 PACKAGE_NAME = re.compile(r"^([A-Za-z0-9_.-]+)")
 
 
@@ -262,7 +264,22 @@ def analyze_dependency_manifests(
                         dependencies = _dependency_names(path, ecosystem, content)
                     elif ecosystem == "node" and path.name in {"package-lock.json", "npm-shrinkwrap.json"}:
                         lockfile_details = _parse_npm_lockfile(content)
-                except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError):
+                        packages = lockfile_details.get("locked_packages", [])
+                        edges = lockfile_details.get("locked_dependency_edges", [])
+                        lockfile_truncated = (
+                            len(packages) > MAX_LOCKED_PACKAGES
+                            or len(edges) > MAX_LOCKED_EDGES
+                        )
+                        lockfile_details["locked_packages"] = packages[:MAX_LOCKED_PACKAGES]
+                        lockfile_details["locked_dependency_edges"] = edges[:MAX_LOCKED_EDGES]
+                        lockfile_details["locked_package_count"] = len(
+                            lockfile_details["locked_packages"]
+                        )
+                        lockfile_details["locked_dependency_edge_count"] = len(
+                            lockfile_details["locked_dependency_edges"]
+                        )
+                        lockfile_details["lockfile_truncated"] = lockfile_truncated
+                except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError, RecursionError):
                     parse_error = "invalid_manifest" if kind == "manifest" else "invalid_lockfile"
                 manifests.append({
                     "path": relative,
