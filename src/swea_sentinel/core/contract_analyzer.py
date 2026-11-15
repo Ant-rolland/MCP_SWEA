@@ -15,11 +15,12 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 MAX_FILES = 500
 MAX_FILE_BYTES = 1_000_000
 MAX_TOTAL_BYTES = 10_000_000
+MAX_SCAN_SECONDS = 5.0
 IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "dist", "build"}
 
 
-def _load_document(path: Path) -> Any:
-    text = path.read_text(encoding="utf-8")
+def _load_document(path: Path, raw: bytes) -> Any:
+    text = raw.decode("utf-8")
     if path.suffix.lower() == ".json":
         return json.loads(text)
     return yaml.safe_load(text)
@@ -109,6 +110,9 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             if name not in IGNORED_DIRS and not (Path(current) / name).is_symlink()
         )
         for filename in sorted(filenames):
+            if time.monotonic() - started > MAX_SCAN_SECONDS:
+                truncated_reason = "maximum_scan_duration"
+                break
             path = Path(current) / filename
             if path.is_symlink() or path.suffix.lower() not in CONTRACT_SUFFIXES:
                 continue
@@ -129,11 +133,25 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                 if total_bytes + size > MAX_TOTAL_BYTES:
                     truncated_reason = "maximum_total_bytes"
                     break
-                raw = path.read_bytes()
+                # Read at most the configured per-file budget, even if the file
+                # changes after stat(); account bytes before parsing so malformed
+                # candidates cannot bypass the aggregate budget.
+                with path.open("rb") as stream:
+                    raw = stream.read(MAX_FILE_BYTES + 1)
+                if len(raw) > MAX_FILE_BYTES:
+                    findings.append({
+                        "code": "CONTRACT_FILE_TOO_LARGE", "severity": "info",
+                        "path": relative,
+                        "message": "Contract candidate skipped because it exceeds the per-file size limit.",
+                    })
+                    continue
+                if total_bytes + len(raw) > MAX_TOTAL_BYTES:
+                    truncated_reason = "maximum_total_bytes"
+                    break
+                total_bytes += len(raw)
                 digest = hashlib.sha256(raw).hexdigest()
-                document = _load_document(path)
+                document = _load_document(path, raw)
                 inspected += 1
-                total_bytes += size
             except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
                 findings.append({
                     "code": "CONTRACT_PARSE_ERROR", "severity": "medium",
@@ -227,6 +245,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Discovery is limited to JSON and YAML files that resemble OpenAPI or JSON Schema documents.",
+            "File count, per-file bytes, aggregate bytes, and scan duration are bounded; malformed files count toward the byte budget.",
             "External references are not fetched or validated; only local JSON Pointer references are checked.",
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
             "No project code is executed and no files are modified.",
