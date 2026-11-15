@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import re
 import time
@@ -142,7 +143,7 @@ def analyze_dependency_manifests(
     truncated_reason: str | None = None
     excluded = IGNORED_DIRS | set(limits.excluded_directories)
 
-    for current, dirs, files in __import__("os").walk(root, followlinks=False):
+    for current, dirs, files in os.walk(root, followlinks=False):
         dirs[:] = sorted(
             name for name in dirs
             if name not in excluded and not (Path(current) / name).is_symlink()
@@ -171,7 +172,16 @@ def analyze_dependency_manifests(
                 if total_bytes + stat.st_size > min(limits.max_total_bytes, MAX_TOTAL_BYTES):
                     truncated_reason = "maximum_total_bytes"
                     break
-                content = path.read_bytes()
+                per_file_limit = min(limits.max_file_bytes, MAX_MANIFEST_BYTES)
+                with path.open("rb") as handle:
+                    content = handle.read(per_file_limit + 1)
+                if len(content) > per_file_limit:
+                    errors.append({"path": relative, "error": "manifest_too_large"})
+                    continue
+                aggregate_limit = min(limits.max_total_bytes, MAX_TOTAL_BYTES)
+                if total_bytes + len(content) > aggregate_limit:
+                    truncated_reason = "maximum_total_bytes"
+                    break
                 total_bytes += len(content)
                 ecosystem, kind = classified
                 digest = hashlib.sha256(content).hexdigest()
