@@ -9,7 +9,8 @@ SWEA Sentinel is an independent MCP service that adds an evidence-aware engineer
 - SQLite persistence with WAL, foreign keys, ordered schema migrations, and governance-oriented tables.
 - Per-tool execution records and audit events, including successful and failed tool invocations.
 - Project registration and bounded filesystem inventory (metadata and SHA-256 only; source contents are not stored or sent to external services).
-- Five MCP tools for project initialization, inventory analysis, context, status, and index refresh.
+- Six MCP tools for project initialization, inventory analysis, architecture analysis, context, status, and index refresh.
+- Initial P2 architecture analyzer: bounded, read-only Python AST import graph; local dependency edges, external import roots, syntax-error reporting, and qualified source-hash evidence persisted with assessment records.
 - Real MCP client handshake tests for STDIO and Streamable HTTP.
 - GitHub Actions matrix for Python 3.12 and 3.13.
 
@@ -33,6 +34,7 @@ Default database: `~/.swea-sentinel/sentinel.db`. Override with `SWEA_DB_PATH` o
 
 - `swea_initialize_project`
 - `swea_analyze_project`
+- `swea_analyze_architecture`
 - `swea_get_project_context`
 - `swea_get_project_status`
 - `swea_refresh_project_index`
@@ -47,4 +49,4 @@ swea-sentinel --help
 
 ## Security and scope boundaries
 
-P1 performs filesystem inventory only. It does not claim semantic architecture, security, compliance, performance, or test analysis. It does not execute project commands or modify project files. HTTP remote binding, authentication, multi-tenant authorization, and controlled execution are intentionally out of scope until independently designed and tested.
+P1 performs filesystem inventory only. The initial P2 architecture slice statically inspects Python imports; it does not execute project code or resolve dynamic imports, runtime dependency injection, generated modules, or prove runtime use. It is not yet a complete architecture, security, compliance, performance, or test audit. It does not execute project commands or modify project files. HTTP remote binding, authentication, multi-tenant authorization, and controlled execution are intentionally out of scope until independently designed and tested.
