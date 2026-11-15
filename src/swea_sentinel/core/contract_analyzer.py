@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,59 @@ def _append_unresolved_refs(
     return len(unresolved)
 
 
+
+def _append_path_parameter_findings(
+    findings: list[dict[str, str]], *, path: str, route: str, path_item: dict[str, Any]
+) -> None:
+    """Check inline OpenAPI path parameters against route-template placeholders."""
+    placeholders = set(re.findall(r"\\{([^{}]+)\\}", route))
+    if not placeholders:
+        return
+
+    path_parameters = path_item.get("parameters", [])
+    if not isinstance(path_parameters, list):
+        path_parameters = []
+
+    for method in HTTP_METHODS:
+        operation = path_item.get(method)
+        if not isinstance(operation, dict):
+            continue
+        operation_parameters = operation.get("parameters", [])
+        if not isinstance(operation_parameters, list):
+            operation_parameters = []
+        parameters = path_parameters + operation_parameters
+
+        # Parameter references are not dereferenced in this structural pass.
+        if any(isinstance(item, dict) and "$ref" in item for item in parameters):
+            continue
+
+        inline_parameters = [item for item in parameters if isinstance(item, dict)]
+        for placeholder in sorted(placeholders):
+            matches = [
+                item for item in inline_parameters
+                if item.get("name") == placeholder and item.get("in") == "path"
+            ]
+            if not matches:
+                findings.append({
+                    "code": "OPENAPI_PATH_PARAMETER_MISSING",
+                    "severity": "medium",
+                    "path": path,
+                    "message": (
+                        f"Route {route} uses path parameter '{placeholder}' "
+                        f"without a matching inline path parameter on {method.upper()}."
+                    ),
+                })
+            elif not any(item.get("required") is True for item in matches):
+                findings.append({
+                    "code": "OPENAPI_PATH_PARAMETER_NOT_REQUIRED",
+                    "severity": "medium",
+                    "path": path,
+                    "message": (
+                        f"Path parameter '{placeholder}' on {method.upper()} "
+                        "must declare required: true."
+                    ),
+                })
+
 def analyze_contracts(root: Path) -> dict[str, Any]:
     """Inspect JSON/YAML OpenAPI and JSON Schema documents without executing project code."""
     started = time.monotonic()
@@ -170,6 +224,9 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                     for method, operation in path_item.items():
                         if isinstance(method, str) and method.lower() in HTTP_METHODS and isinstance(operation, dict):
                             operations.append((str(route), method.lower(), operation))
+                    _append_path_parameter_findings(
+                        findings, path=relative, route=str(route), path_item=path_item
+                    )
 
                 if version.startswith("3.") and not isinstance(document.get("info"), dict):
                     findings.append({
@@ -247,6 +304,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             "Discovery is limited to JSON and YAML files that resemble OpenAPI or JSON Schema documents.",
             "File count, per-file bytes, aggregate bytes, and scan duration are bounded; malformed files count toward the byte budget.",
             "External references are not fetched or validated; only local JSON Pointer references are checked.",
+            "Path-parameter checks cover inline definitions; operations using parameter $ref entries are skipped rather than guessed.",
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
             "No project code is executed and no files are modified.",
         ],
