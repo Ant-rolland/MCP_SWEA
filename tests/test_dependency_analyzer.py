@@ -71,3 +71,73 @@ def test_manifest_size_limit_is_respected(tmp_path):
 
     assert report["manifests"] == []
     assert report["parse_errors"] == [{"path": "package.json", "error": "manifest_too_large"}]
+
+
+
+def test_parses_npm_lockfile_v3_versions_and_dependency_edges(tmp_path):
+    (tmp_path / "package-lock.json").write_text(json.dumps({
+        "name": "demo",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {"name": "demo", "dependencies": {"left-pad": "^1"}},
+            "node_modules/left-pad": {"version": "1.3.0"},
+            "node_modules/@scope/tool": {
+                "version": "2.4.1",
+                "dependencies": {"left-pad": "^1"},
+            },
+            "node_modules/parent/node_modules/child": {"version": "0.9.0"},
+        },
+    }), encoding="utf-8")
+
+    report = analyze_dependency_manifests(tmp_path)
+    lock = report["manifests"][0]
+
+    assert lock["lockfile_version"] == 3
+    assert lock["locked_package_count"] == 3
+    assert {(item["name"], item["version"]) for item in lock["locked_packages"]} == {
+        ("left-pad", "1.3.0"),
+        ("@scope/tool", "2.4.1"),
+        ("child", "0.9.0"),
+    }
+    assert lock["locked_dependency_edges"] == [
+        {
+            "source": "@scope/tool",
+            "target": "left-pad",
+            "source_install_path": "node_modules/@scope/tool",
+        }
+    ]
+
+
+def test_parses_legacy_npm_lockfile_v1_nested_dependencies(tmp_path):
+    (tmp_path / "npm-shrinkwrap.json").write_text(json.dumps({
+        "name": "demo",
+        "dependencies": {
+            "parent": {
+                "version": "1.0.0",
+                "dependencies": {"child": {"version": "2.0.0"}},
+            }
+        },
+    }), encoding="utf-8")
+
+    report = analyze_dependency_manifests(tmp_path)
+    lock = report["manifests"][0]
+
+    assert lock["lockfile_version"] == 1
+    assert [(item["name"], item["version"]) for item in lock["locked_packages"]] == [
+        ("parent", "1.0.0"),
+        ("child", "2.0.0"),
+    ]
+    assert lock["locked_dependency_edges"][0]["target"] == "child"
+
+
+def test_invalid_npm_lockfile_is_reported(tmp_path):
+    (tmp_path / "package-lock.json").write_text(
+        '{"lockfileVersion":99,"packages":{}}', encoding="utf-8"
+    )
+
+    report = analyze_dependency_manifests(tmp_path)
+
+    assert report["manifests"][0]["parse_error"] == "invalid_lockfile"
+    assert report["parse_errors"] == [
+        {"path": "package-lock.json", "error": "invalid_lockfile"}
+    ]
