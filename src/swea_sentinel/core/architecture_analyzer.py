@@ -148,4 +148,3 @@ def analyze_python_imports(
             "A detected local import edge does not prove that the dependency is used at runtime.",
         ],
     }
-}
