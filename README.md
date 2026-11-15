@@ -10,7 +10,7 @@ SWEA Sentinel is an independent MCP service that adds an evidence-aware engineer
 - Per-tool execution records and audit events, including successful and failed tool invocations.
 - Project registration and bounded filesystem inventory (metadata and SHA-256 only; source contents are not stored or sent to external services).
 - Six MCP tools for project initialization, inventory analysis, architecture analysis, context, status, and index refresh.
-- Initial P2 architecture analyzer: bounded, read-only Python AST import graph; local dependency edges, external import roots, syntax-error reporting, and qualified source-hash evidence persisted with assessment records.
+- Initial P2 architecture analyzer: bounded, read-only Python AST import graph; local dependency edges, external import roots, candidate import-cycle detection, syntax-error reporting, and qualified source-hash evidence persisted with assessment records.
 - Real MCP client handshake tests for STDIO and Streamable HTTP.
 - GitHub Actions matrix for Python 3.12 and 3.13.
 
