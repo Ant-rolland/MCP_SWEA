@@ -100,7 +100,7 @@ def _append_path_parameter_findings(
     findings: list[dict[str, str]], *, path: str, route: str, path_item: dict[str, Any]
 ) -> None:
     """Check inline OpenAPI path parameters against route-template placeholders."""
-    placeholders = set(re.findall(r"\\{([^{}]+)\\}", route))
+    placeholders = set(re.findall(r"\{([^{}]+)\}", route))
     if not placeholders:
         return
 
