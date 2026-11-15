@@ -104,6 +104,14 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
         payload = ProjectReferenceInput(project_id=project_id)
         return service.analyze(payload.project_id).model_dump(mode="json")
 
+
+    @mcp.tool()
+    @_audit_tool(database, "swea_analyze_architecture")
+    def swea_analyze_architecture(project_id: str) -> dict[str, Any]:
+        """Build and persist a bounded static Python import graph for a registered project."""
+        payload = ProjectReferenceInput(project_id=project_id)
+        return service.analyze_architecture(payload.project_id).model_dump(mode="json")
+
     @mcp.tool()
     @_audit_tool(database, "swea_get_project_context")
     def swea_get_project_context(project_id: str) -> dict[str, Any]:
