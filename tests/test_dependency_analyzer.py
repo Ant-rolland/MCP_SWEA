@@ -64,7 +64,7 @@ def test_manifest_discovery_excludes_vendor_and_symlinks(tmp_path):
 
 def test_manifest_size_limit_is_respected(tmp_path):
     (tmp_path / "package.json").write_text('{"dependencies":{"a":"1"}}', encoding="utf-8")
-    settings = ProjectIndexSettings(max_file_bytes=1024, max_total_bytes=1024)
+    settings = ProjectIndexSettings(max_file_bytes=1024, max_total_bytes=1_024_000)
     (tmp_path / "package.json").write_bytes(b" " * 1025)
 
     report = analyze_dependency_manifests(tmp_path, settings)
