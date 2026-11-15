@@ -10,7 +10,9 @@ from uuid import uuid4
 
 from swea_sentinel.config import Settings, load_settings
 from swea_sentinel.core.project_service import ProjectService
-from swea_sentinel.models import ProjectInitializeInput, ProjectReferenceInput, ProjectRefreshInput
+from swea_sentinel.models import (
+    ProjectImpactInput, ProjectInitializeInput, ProjectReferenceInput, ProjectRefreshInput,
+)
 from swea_sentinel.persistence.database import Database
 
 
@@ -111,6 +113,16 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
         """Build and persist a bounded static Python import graph for a registered project."""
         payload = ProjectReferenceInput(project_id=project_id)
         return service.analyze_architecture(payload.project_id).model_dump(mode="json")
+
+
+    @mcp.tool()
+    @_audit_tool(database, "swea_check_blast_radius")
+    def swea_check_blast_radius(project_id: str, target_path: str) -> dict[str, Any]:
+        """List direct and transitive Python dependents of a project-relative file."""
+        payload = ProjectImpactInput(project_id=project_id, target_path=target_path)
+        return service.check_blast_radius(
+            payload.project_id, payload.target_path
+        ).model_dump(mode="json")
 
     @mcp.tool()
     @_audit_tool(database, "swea_get_project_context")
