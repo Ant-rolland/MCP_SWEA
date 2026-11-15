@@ -142,72 +142,75 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                 })
                 continue
 
-        if _is_openapi(document):
-            version = str(document.get("openapi") or document.get("swagger"))
-            paths = document.get("paths") if isinstance(document.get("paths"), dict) else {}
-            operations: list[tuple[str, str, dict[str, Any]]] = []
-            for route, path_item in paths.items():
-                if not isinstance(path_item, dict):
-                    continue
-                for method, operation in path_item.items():
-                    if isinstance(method, str) and method.lower() in HTTP_METHODS and isinstance(operation, dict):
-                        operations.append((str(route), method.lower(), operation))
+            if _is_openapi(document):
+                version = str(document.get("openapi") or document.get("swagger"))
+                paths = document.get("paths") if isinstance(document.get("paths"), dict) else {}
+                operations: list[tuple[str, str, dict[str, Any]]] = []
+                for route, path_item in paths.items():
+                    if not isinstance(path_item, dict):
+                        continue
+                    for method, operation in path_item.items():
+                        if isinstance(method, str) and method.lower() in HTTP_METHODS and isinstance(operation, dict):
+                            operations.append((str(route), method.lower(), operation))
 
-            if version.startswith("3.") and not isinstance(document.get("info"), dict):
-                findings.append({
-                    "code": "OPENAPI_INFO_MISSING", "severity": "medium", "path": relative,
-                    "message": "OpenAPI document has no info object.",
+                if version.startswith("3.") and not isinstance(document.get("info"), dict):
+                    findings.append({
+                        "code": "OPENAPI_INFO_MISSING", "severity": "medium", "path": relative,
+                        "message": "OpenAPI document has no info object.",
+                    })
+
+                operation_ids = [
+                    operation.get("operationId")
+                    for _, _, operation in operations
+                    if "operationId" in operation
+                ]
+                invalid_ids = [value for value in operation_ids if not isinstance(value, str) or not value.strip()]
+                if invalid_ids:
+                    findings.append({
+                        "code": "OPENAPI_INVALID_OPERATION_ID", "severity": "medium", "path": relative,
+                        "message": "One or more operationId values are not non-empty strings.",
+                    })
+                valid_ids = [value for value in operation_ids if isinstance(value, str) and value.strip()]
+                if len(valid_ids) != len(set(valid_ids)):
+                    findings.append({
+                        "code": "OPENAPI_DUPLICATE_OPERATION_ID", "severity": "medium", "path": relative,
+                        "message": "OpenAPI document contains duplicate operationId values.",
+                    })
+                if not operations:
+                    findings.append({
+                        "code": "OPENAPI_NO_OPERATIONS", "severity": "low", "path": relative,
+                        "message": "OpenAPI document declares no HTTP operations under paths.",
+                    })
+
+                refs = _walk_refs(document)
+                unresolved_refs = _append_unresolved_refs(
+                    findings, path=relative, refs=refs, document=document,
+                    code="OPENAPI_UNRESOLVED_LOCAL_REF",
+                )
+                components = document.get("components")
+                schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
+                contracts.append({
+                    "path": relative, "kind": "openapi", "version": version,
+                    "operation_count": len(operations),
+                    "schema_count": len(schemas) if isinstance(schemas, dict) else 0,
+                    "reference_count": len(refs),
+                    "unresolved_local_refs": unresolved_refs,
+                    "sha256": digest,
+                })
+            elif _is_json_schema(document):
+                refs = _walk_refs(document)
+                unresolved_refs = _append_unresolved_refs(
+                    findings, path=relative, refs=refs, document=document,
+                    code="JSON_SCHEMA_UNRESOLVED_LOCAL_REF",
+                )
+                contracts.append({
+                    "path": relative, "kind": "json_schema",
+                    "reference_count": len(refs), "unresolved_local_refs": unresolved_refs,
+                    "sha256": digest,
                 })
 
-            operation_ids = [
-                operation.get("operationId")
-                for _, _, operation in operations
-                if "operationId" in operation
-            ]
-            invalid_ids = [value for value in operation_ids if not isinstance(value, str) or not value.strip()]
-            if invalid_ids:
-                findings.append({
-                    "code": "OPENAPI_INVALID_OPERATION_ID", "severity": "medium", "path": relative,
-                    "message": "One or more operationId values are not non-empty strings.",
-                })
-            valid_ids = [value for value in operation_ids if isinstance(value, str) and value.strip()]
-            if len(valid_ids) != len(set(valid_ids)):
-                findings.append({
-                    "code": "OPENAPI_DUPLICATE_OPERATION_ID", "severity": "medium", "path": relative,
-                    "message": "OpenAPI document contains duplicate operationId values.",
-                })
-            if not operations:
-                findings.append({
-                    "code": "OPENAPI_NO_OPERATIONS", "severity": "low", "path": relative,
-                    "message": "OpenAPI document declares no HTTP operations under paths.",
-                })
-
-            refs = _walk_refs(document)
-            unresolved_refs = _append_unresolved_refs(
-                findings, path=relative, refs=refs, document=document,
-                code="OPENAPI_UNRESOLVED_LOCAL_REF",
-            )
-            components = document.get("components")
-            schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
-            contracts.append({
-                "path": relative, "kind": "openapi", "version": version,
-                "operation_count": len(operations),
-                "schema_count": len(schemas) if isinstance(schemas, dict) else 0,
-                "reference_count": len(refs),
-                "unresolved_local_refs": unresolved_refs,
-                "sha256": digest,
-            })
-        elif _is_json_schema(document):
-            refs = _walk_refs(document)
-            unresolved_refs = _append_unresolved_refs(
-                findings, path=relative, refs=refs, document=document,
-                code="JSON_SCHEMA_UNRESOLVED_LOCAL_REF",
-            )
-            contracts.append({
-                "path": relative, "kind": "json_schema",
-                "reference_count": len(refs), "unresolved_local_refs": unresolved_refs,
-                "sha256": digest,
-            })
+        if truncated_reason:
+            break
 
     return {
         "analysis_level": "static_api_data_contract_discovery",
