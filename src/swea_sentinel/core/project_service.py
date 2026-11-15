@@ -14,8 +14,8 @@ from uuid import uuid4
 from swea_sentinel.config import ProjectIndexSettings
 from swea_sentinel.core.architecture_analyzer import analyze_python_imports
 from swea_sentinel.models import (
-    DataOrigin, Evidence, ExecutionStatus, ProjectStatus, QualificationStatus,
-    SWEADomain, ToolResult,
+    Confidence, DataOrigin, Evidence, ExecutionStatus, Finding, FindingStatus,
+    ProjectStatus, QualificationStatus, Severity, SWEADomain, ToolResult,
 )
 from swea_sentinel.persistence.database import Database
 
@@ -374,8 +374,8 @@ class ProjectService:
         report = analyze_contracts(root)
         assessment_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        evidence = [
-            Evidence(
+        evidence_by_path = {
+            item["path"]: Evidence(
                 kind="api_data_contract",
                 description=f"Static {item['kind']} contract document inspected",
                 origin=DataOrigin.VERIFIED_SOURCE,
@@ -384,9 +384,27 @@ class ProjectService:
                 sha256=item["sha256"],
             )
             for item in report["contracts"]
-        ]
-        severity_map = {"info": "info", "low": "low", "medium": "medium", "high": "high", "critical": "critical"}
-        findings = report["findings"]
+        }
+        evidence = list(evidence_by_path.values())
+        findings: list[Finding] = []
+        for item in report["findings"]:
+            evidence_item = evidence_by_path.get(item["path"])
+            finding = Finding(
+                domain=SWEADomain.DATA_CONTRACTS,
+                code=item["code"],
+                severity=Severity(item["severity"]),
+                confidence=Confidence.HIGH_CONFIDENCE,
+                title=item["message"][:300],
+                location=item["path"],
+                evidence_ids=[evidence_item.evidence_id] if evidence_item else [],
+                recommendation=(
+                    "Review the reported contract structure and correct it if the "
+                    "document is intended to be authoritative."
+                ),
+                status=FindingStatus.OPEN,
+            )
+            findings.append(finding)
+
         status = (
             ExecutionStatus.PARTIAL
             if report["truncated"] or findings
@@ -413,33 +431,23 @@ class ProjectService:
                 ],
             )
             for finding in findings:
-                payload = {
-                    "finding_id": str(uuid4()),
-                    "domain": SWEADomain.DATA_CONTRACTS.value,
-                    "code": finding["code"],
-                    "severity": severity_map[finding["severity"]],
-                    "confidence": "HIGH_CONFIDENCE",
-                    "title": finding["message"][:300],
-                    "location": finding["path"],
-                    "evidence_ids": [],
-                    "recommendation": "Review the reported contract structure and correct it if the document is intended to be authoritative.",
-                    "status": "open",
-                }
                 conn.execute(
                     "INSERT INTO findings(finding_id,project_id,assessment_id,domain,code,severity,confidence,status,payload_json) "
                     "VALUES(?,?,?,?,?,?,?,?,?)",
                     (
-                        payload["finding_id"], project_id, assessment_id,
-                        payload["domain"], payload["code"], payload["severity"],
-                        payload["confidence"], payload["status"],
-                        json.dumps(payload, separators=(",", ":")),
+                        finding.finding_id, project_id, assessment_id,
+                        finding.domain.value, finding.code, finding.severity.value,
+                        finding.confidence.value, finding.status.value,
+                        finding.model_dump_json(),
                     ),
                 )
         return ToolResult(
             project_id=project_id,
             status=status,
             result={"assessment_id": assessment_id, **report},
+            findings=findings,
             evidence=evidence,
             limitations=list(report["limitations"]),
             duration_ms=int(report["duration_ms"]),
         )
+
