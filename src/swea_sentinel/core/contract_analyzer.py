@@ -128,17 +128,25 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             })
         elif _is_json_schema(document):
             refs: list[str] = []
-            def walk(value: Any) -> None:
+            pending: list[Any] = [document]
+            visited_containers: set[int] = set()
+            while pending:
+                value = pending.pop()
                 if isinstance(value, dict):
+                    identity = id(value)
+                    if identity in visited_containers:
+                        continue
+                    visited_containers.add(identity)
                     ref = value.get("$ref")
                     if isinstance(ref, str):
                         refs.append(ref)
-                    for child in value.values():
-                        walk(child)
+                    pending.extend(value.values())
                 elif isinstance(value, list):
-                    for child in value:
-                        walk(child)
-            walk(document)
+                    identity = id(value)
+                    if identity in visited_containers:
+                        continue
+                    visited_containers.add(identity)
+                    pending.extend(value)
             unresolved = [ref for ref in refs if ref.startswith("#/") and not _resolve_local_ref(document, ref)]
             for ref in unresolved:
                 findings.append({
