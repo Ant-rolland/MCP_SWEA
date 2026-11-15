@@ -51,7 +51,7 @@ def test_invalid_manifest_is_reported_without_aborting_scan(tmp_path):
 def test_manifest_discovery_excludes_vendor_and_symlinks(tmp_path):
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "package.json").write_text('{"dependencies":{"bad":"1"}}')
-    outside = tmp_path / "outside"
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
     (outside / "package.json").write_text('{"dependencies":{"outside":"1"}}')
     (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
