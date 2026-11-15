@@ -104,3 +104,40 @@ def test_contract_scan_prunes_generated_dirs_and_bounds_candidates(tmp_path, mon
     assert report["truncated"] is True
     assert report["truncated_reason"] == "maximum_file_count"
     assert all(item["path"] != "node_modules/ignored.json" for item in report["contracts"])
+
+
+
+def test_malformed_candidates_count_toward_aggregate_byte_budget(tmp_path, monkeypatch):
+    (tmp_path / "a.json").write_text("{bad", encoding="utf-8")
+    (tmp_path / "b.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setattr(contract_analyzer, "MAX_TOTAL_BYTES", 5)
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["bytes_inspected"] == 4
+    assert report["files_considered"] == 2
+    assert report["truncated"] is True
+    assert report["truncated_reason"] == "maximum_total_bytes"
+    assert len(report["findings"]) == 1
+    assert report["findings"][0]["code"] == "CONTRACT_PARSE_ERROR"
+
+
+def test_contract_scan_stops_at_time_budget(tmp_path, monkeypatch):
+    (tmp_path / "a.json").write_text(
+        '{"$schema": "https://json-schema.org/draft/2020-12/schema"}',
+        encoding="utf-8",
+    )
+    (tmp_path / "b.json").write_text(
+        '{"$schema": "https://json-schema.org/draft/2020-12/schema"}',
+        encoding="utf-8",
+    )
+    ticks = iter([0.0, 0.0, 6.0, 6.0])
+    monkeypatch.setattr(contract_analyzer, "MAX_SCAN_SECONDS", 5.0)
+    monkeypatch.setattr(contract_analyzer.time, "monotonic", lambda: next(ticks))
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["contract_count"] == 1
+    assert report["files_considered"] == 1
+    assert report["truncated"] is True
+    assert report["truncated_reason"] == "maximum_scan_duration"
