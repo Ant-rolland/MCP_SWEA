@@ -33,7 +33,7 @@ def test_mcp_server_registers_p1_and_p2_tools(monkeypatch, tmp_path):
     install_fake_mcp(monkeypatch)
     server = build_server(str(tmp_path / "swea.db"))
     assert set(server.tools) == {
-        "swea_initialize_project", "swea_analyze_project", "swea_analyze_architecture", "swea_analyze_contracts", "swea_check_blast_radius", "swea_get_project_context",
+        "swea_initialize_project", "swea_analyze_project", "swea_analyze_architecture", "swea_analyze_contracts", "swea_analyze_dependencies", "swea_check_blast_radius", "swea_get_project_context",
         "swea_get_project_status", "swea_refresh_project_index",
     }
     assert server.name == "SWEA Sentinel"
@@ -72,3 +72,21 @@ def test_successful_and_failed_tool_calls_are_audited(monkeypatch, tmp_path):
         ("mcp.tool.swea_initialize_project", "success"),
         ("mcp.tool.swea_get_project_status", "failure"),
     ]
+
+
+
+def test_dependency_analysis_is_available_as_mcp_tool(monkeypatch, tmp_path):
+    install_fake_mcp(monkeypatch)
+    server = build_server(str(tmp_path / "swea.db"))
+    project = tmp_path / "node-project"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^19"}}', encoding="utf-8"
+    )
+    registered = server.tools["swea_initialize_project"](path=str(project), name="node-project")
+
+    result = server.tools["swea_analyze_dependencies"](project_id=registered["project_id"])
+
+    assert result["status"] == "completed"
+    assert result["result"]["manifest_count"] == 1
+    assert result["result"]["manifests"][0]["declared_dependency_names"] == ["react"]
