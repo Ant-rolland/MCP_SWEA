@@ -5,8 +5,8 @@ from swea_sentinel.core.contract_analyzer import analyze_contracts
 
 def test_discovers_openapi_and_json_schema_and_checks_local_refs(tmp_path):
     (tmp_path / "openapi.yaml").write_text(
-        "openapi: 3.0.3\\ninfo:\\n  title: Demo\\n  version: '1'\\npaths:\\n"
-        "  /items:\\n    get:\\n      operationId: listItems\\n",
+        "openapi: 3.0.3\ninfo:\n  title: Demo\n  version: '1'\npaths:\n"
+        "  /items:\n    get:\n      operationId: listItems\n",
         encoding="utf-8",
     )
     (tmp_path / "schema.json").write_text(json.dumps({
@@ -38,8 +38,8 @@ def test_reports_invalid_contract_file_without_executing_code(tmp_path):
 
 def test_yaml_alias_cycle_does_not_recurse_forever(tmp_path):
     (tmp_path / "cyclic.yaml").write_text(
-        "$schema: https://json-schema.org/draft/2020-12/schema\\n"
-        "properties: &props\\n  self: *props\\n",
+        "$schema: https://json-schema.org/draft/2020-12/schema\n"
+        "properties: &props\n  self: *props\n",
         encoding="utf-8",
     )
 
@@ -78,9 +78,9 @@ def test_openapi_reports_unresolved_local_refs_and_invalid_operation_ids(tmp_pat
 
 def test_openapi_detects_duplicate_operation_ids_without_crashing_on_bad_values(tmp_path):
     (tmp_path / "openapi.yaml").write_text(
-        "openapi: 3.0.3\\ninfo: {title: API, version: '1'}\\npaths:\\n"
-        "  /a: {get: {operationId: same}}\\n"
-        "  /b: {post: {operationId: same}}\\n",
+        "openapi: 3.0.3\ninfo: {title: API, version: '1'}\npaths:\n"
+        "  /a: {get: {operationId: same}}\n"
+        "  /b: {post: {operationId: same}}\n",
         encoding="utf-8",
     )
     report = analyze_contracts(tmp_path)
