@@ -148,6 +148,49 @@ def _append_path_parameter_findings(
                     ),
                 })
 
+
+def _append_response_findings(
+    findings: list[dict[str, str]], *, path: str, route: str, method: str,
+    operation: dict[str, Any],
+) -> None:
+    """Check required OpenAPI operation responses and inline response descriptions."""
+    responses = operation.get("responses")
+    if not isinstance(responses, dict) or not responses:
+        findings.append({
+            "code": "OPENAPI_RESPONSES_MISSING",
+            "severity": "high",
+            "path": path,
+            "message": f"Operation {method.upper()} {route} has no non-empty responses object.",
+        })
+        return
+
+    for status_code, response in responses.items():
+        if not isinstance(response, dict):
+            findings.append({
+                "code": "OPENAPI_RESPONSE_INVALID",
+                "severity": "medium",
+                "path": path,
+                "message": (
+                    f"Response '{status_code}' on {method.upper()} {route} "
+                    "is not an object."
+                ),
+            })
+            continue
+        # Response references are handled by the shared local-reference checker.
+        if "$ref" in response:
+            continue
+        description = response.get("description")
+        if not isinstance(description, str) or not description.strip():
+            findings.append({
+                "code": "OPENAPI_RESPONSE_DESCRIPTION_MISSING",
+                "severity": "medium",
+                "path": path,
+                "message": (
+                    f"Response '{status_code}' on {method.upper()} {route} "
+                    "has no non-empty description."
+                ),
+            })
+
 def analyze_contracts(root: Path) -> dict[str, Any]:
     """Inspect JSON/YAML OpenAPI and JSON Schema documents without executing project code."""
     started = time.monotonic()
@@ -224,6 +267,10 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                     for method, operation in path_item.items():
                         if isinstance(method, str) and method.lower() in HTTP_METHODS and isinstance(operation, dict):
                             operations.append((str(route), method.lower(), operation))
+                            _append_response_findings(
+                                findings, path=relative, route=str(route),
+                                method=method.lower(), operation=operation,
+                            )
                     _append_path_parameter_findings(
                         findings, path=relative, route=str(route), path_item=path_item
                     )
@@ -305,6 +352,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             "File count, per-file bytes, aggregate bytes, and scan duration are bounded; malformed files count toward the byte budget.",
             "External references are not fetched or validated; only local JSON Pointer references are checked.",
             "Path-parameter checks cover inline definitions; operations using parameter $ref entries are skipped rather than guessed.",
+            "Response checks verify the responses object and inline descriptions; response $ref targets are not expanded.",
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
             "No project code is executed and no files are modified.",
         ],
