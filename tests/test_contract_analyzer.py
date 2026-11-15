@@ -141,3 +141,28 @@ def test_contract_scan_stops_at_time_budget(tmp_path, monkeypatch):
     assert report["files_considered"] == 1
     assert report["truncated"] is True
     assert report["truncated_reason"] == "maximum_scan_duration"
+
+
+
+def test_openapi_checks_path_template_parameters(tmp_path):
+    (tmp_path / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items/{itemId}": {
+                "get": {"responses": {"200": {"description": "ok"}}},
+                "post": {
+                    "parameters": [
+                        {"name": "itemId", "in": "path", "required": False, "schema": {"type": "string"}}
+                    ],
+                    "responses": {"200": {"description": "ok"}},
+                },
+            }
+        },
+    }), encoding="utf-8")
+
+    report = analyze_contracts(tmp_path)
+    codes = [finding["code"] for finding in report["findings"]]
+
+    assert "OPENAPI_PATH_PARAMETER_MISSING" in codes
+    assert "OPENAPI_PATH_PARAMETER_NOT_REQUIRED" in codes
