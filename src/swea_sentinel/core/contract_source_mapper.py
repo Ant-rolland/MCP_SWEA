@@ -161,6 +161,78 @@ def _decorator_routes(
     return routes
 
 
+def _expression_label(node: ast.expr | None) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _registration_routes(
+    node: ast.Call,
+    router_prefixes: dict[str, list[str] | None],
+) -> list[dict[str, Any]]:
+    """Recognize literal FastAPI/Flask/Starlette-style registration calls."""
+    if not isinstance(node.func, ast.Attribute):
+        return []
+    name = node.func.attr
+    if name not in {"add_api_route", "add_url_rule", "add_route"}:
+        return []
+    if not node.args:
+        return []
+    route = _literal_path(node.args[0])
+    if route is None or not route.startswith("/"):
+        return []
+
+    method_keyword = next(
+        (item.value for item in node.keywords if item.arg == "methods"), None
+    )
+    if method_keyword is None:
+        methods = ["GET"]
+    else:
+        parsed = _literal_methods(method_keyword)
+        if parsed is None:
+            return []
+        methods = parsed
+
+    endpoint_node = next(
+        (
+            item.value for item in node.keywords
+            if item.arg in {"view_func", "endpoint"}
+        ),
+        None,
+    )
+    if endpoint_node is None:
+        if name == "add_url_rule":
+            if len(node.args) > 2:
+                endpoint_node = node.args[2]
+            elif len(node.args) > 1:
+                endpoint_node = node.args[1]
+        elif len(node.args) > 1:
+            endpoint_node = node.args[1]
+    endpoint = _expression_label(endpoint_node)
+    router_name = node.func.value.id if isinstance(node.func.value, ast.Name) else None
+    prefixes = router_prefixes.get(router_name, [""]) if router_name else [""]
+    if prefixes is None:
+        return []
+
+    routes: list[dict[str, Any]] = []
+    for method in methods:
+        for prefix in prefixes:
+            routes.append({
+                "method": method,
+                "path": _join_paths(prefix, route),
+                "source_path": "",
+                "function": endpoint,
+                "line": node.lineno,
+                "framework_pattern": name,
+            })
+    return routes
+
+
 def discover_python_routes(
     root: Path,
     *,
@@ -169,7 +241,7 @@ def discover_python_routes(
     max_total_bytes: int = 10_000_000,
     max_scan_seconds: float = 5.0,
 ) -> dict[str, Any]:
-    """Find only explicit, literal route decorators; never import or execute project code."""
+    """Find explicit literal Python route decorators and registration calls without execution."""
     started = time.monotonic()
     routes: list[dict[str, Any]] = []
     parse_errors: list[dict[str, str]] = []
@@ -223,11 +295,15 @@ def discover_python_routes(
             relative = path.relative_to(root).as_posix()
             router_prefixes = _router_prefixes(tree)
             for node in ast.walk(tree):
+                discovered: list[dict[str, Any]] = []
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    for route in _decorator_routes(node, router_prefixes):
-                        route["source_path"] = relative
-                        route["sha256"] = digest
-                        routes.append(route)
+                    discovered.extend(_decorator_routes(node, router_prefixes))
+                elif isinstance(node, ast.Call):
+                    discovered.extend(_registration_routes(node, router_prefixes))
+                for route in discovered:
+                    route["source_path"] = relative
+                    route["sha256"] = digest
+                    routes.append(route)
         if truncated_reason:
             break
 
@@ -247,8 +323,8 @@ def discover_python_routes(
         "truncated_reason": truncated_reason,
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
-            "Only literal route paths and statically literal HTTP methods in Python decorators are recognized.",
-            "Dynamic route expressions, dynamic router prefixes, cross-module router mounts, framework registration calls, and non-Python routes are not resolved. Literal APIRouter prefixes and include_router prefixes are composed only within one Python file.",
+            "Only literal route paths and statically literal HTTP methods in Python decorators or add_api_route/add_url_rule/add_route registration calls are recognized.",
+            "Dynamic route expressions or methods, dynamic router prefixes, cross-module router mounts, and non-Python routes are not resolved. Literal APIRouter prefixes and include_router prefixes are composed only within one Python file.",
             "Route declarations are structural evidence, not proof that a route is registered or reachable at runtime.",
             "Project code is parsed as syntax only; it is never imported or executed.",
         ],
