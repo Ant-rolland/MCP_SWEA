@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,44 @@ def _literal_true(node: ast.expr | None) -> bool:
 
 def _literal_false(node: ast.expr | None) -> bool:
     return isinstance(node, ast.Constant) and node.value is False
+
+
+def _dynamic_sql_query(node: ast.expr) -> bool:
+    """Recognize dynamic string construction with an obvious SQL statement prefix."""
+    prefix: str | None = None
+    dynamic = False
+    if isinstance(node, ast.JoinedStr):
+        prefix = next(
+            (
+                item.value for item in node.values
+                if isinstance(item, ast.Constant) and isinstance(item.value, str)
+            ),
+            None,
+        )
+        dynamic = any(isinstance(item, ast.FormattedValue) for item in node.values)
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
+            prefix = node.left.value
+            dynamic = True
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+        and isinstance(node.func.value, ast.Constant)
+        and isinstance(node.func.value.value, str)
+    ):
+        prefix = node.func.value.value
+        dynamic = bool(node.args or node.keywords)
+
+    return bool(
+        dynamic
+        and prefix
+        and re.match(
+            r"^\\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|MERGE|WITH)\\b",
+            prefix,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _safe_yaml_loader(node: ast.expr | None) -> bool:
@@ -171,6 +210,26 @@ class _SecurityVisitor(ast.NodeVisitor):
             )
         elif (
             isinstance(function, ast.Attribute)
+            and function.attr in {"execute", "executemany"}
+            and node.args
+            and _dynamic_sql_query(node.args[0])
+        ):
+            self._add(
+                code="PYTHON_DYNAMIC_SQL_QUERY",
+                severity="high",
+                confidence="HEURISTIC",
+                node=node,
+                message=(
+                    "A SQL statement is dynamically assembled before being passed "
+                    "to execute/executemany; interpolated values may alter the query."
+                ),
+                recommendation=(
+                    "Use parameterized queries and pass values separately; do not "
+                    "interpolate data into SQL statement strings."
+                ),
+            )
+        elif (
+            isinstance(function, ast.Attribute)
             and _is_name(function.value, "pickle")
             and function.attr in {"load", "loads"}
         ):
@@ -269,8 +328,8 @@ def analyze_python_security(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "file_hashes": file_hashes,
         "limitations": [
-            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, and explicit TLS certificate-verification disabling.",
-            "The analyzer does not perform taint analysis, data-flow analysis, import alias resolution, or prove that arguments are attacker-controlled.",
+            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, and obvious dynamic SQL string construction.",
+            "The analyzer does not perform taint analysis, data-flow analysis, import alias resolution, or prove that SQL interpolation values are attacker-controlled.",
             "pickle findings are heuristic because exploitability depends on the trust boundary of the input.",
             "The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
             "No project code is imported or executed and no files are modified.",
