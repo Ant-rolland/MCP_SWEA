@@ -52,3 +52,10 @@ def test_environment_override_cannot_enable_remote_http_binding(tmp_path, monkey
     except ValidationError:
         return
     raise AssertionError("Environment override must not permit remote HTTP binding")
+
+
+
+def test_storage_configuration_tracks_current_database_schema(tmp_path):
+    settings = load_settings(tmp_path / "missing.yaml")
+
+    assert settings.storage.schema_version == 2
