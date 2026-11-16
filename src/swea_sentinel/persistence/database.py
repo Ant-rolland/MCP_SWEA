@@ -220,7 +220,6 @@ class Database:
         details: dict[str, object],
     ) -> None:
         import json
-        from datetime import datetime, timezone
 
         with self.connect() as conn:
             conn.execute(
