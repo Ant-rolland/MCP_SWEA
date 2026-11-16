@@ -70,3 +70,29 @@ def test_skips_router_mapping_when_prefix_is_dynamic(tmp_path):
     report = discover_python_routes(tmp_path)
 
     assert report["routes"] == []
+
+
+def test_discovers_literal_framework_route_registration_calls(tmp_path):
+    (tmp_path / "routes.py").write_text(
+        "app.add_api_route('/fastapi', fast_handler, methods=['GET', 'POST'])\n"
+        "app.add_url_rule('/flask', view_func=flask_handler, methods=['PATCH'])\n"
+        "app.add_url_rule('/flask-default', 'flask_default', default_handler)\n"
+        "app.add_route('/starlette', starlette_handler, methods=['DELETE'])\n"
+        "app.add_api_route(DYNAMIC_PATH, dynamic_handler)\n"
+        "app.add_route('/dynamic-methods', handler, methods=METHODS)\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    signatures = {(item["method"], item["path"]) for item in report["routes"]}
+    assert signatures == {
+        ("GET", "/fastapi"),
+        ("POST", "/fastapi"),
+        ("PATCH", "/flask"),
+        ("GET", "/flask-default"),
+        ("DELETE", "/starlette"),
+    }
+    by_path = {item["path"]: item["function"] for item in report["routes"]}
+    assert by_path["/fastapi"] == "fast_handler"
+    assert by_path["/flask"] == "flask_handler"
