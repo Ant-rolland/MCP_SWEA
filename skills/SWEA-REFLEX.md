@@ -74,6 +74,10 @@ Evidence records include a source path and SHA-256 hash where available. Source 
 - If route scanning is truncated or Python syntax errors occur, unmatched mappings are incomplete, not proof that no implementation exists.
 - Exact unique contract-to-route matches are persisted as a separate blast-radius relation.
 
+### Security
+
+The current Python security checks also flag obvious dynamically assembled SQL strings passed to `execute` or `executemany` when the literal prefix resembles a SQL statement. These findings are heuristic: the analyzer does not trace whether interpolated values are attacker-controlled. Prefer parameterized queries and inspect the call site and trust boundary before treating a finding as exploitable.
+
 ### Code quality
 
 The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Import aliases and indirect wrappers are not resolved.
