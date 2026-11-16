@@ -46,8 +46,10 @@ def test_stdio_transport_initializes_and_lists_tools(tmp_path):
             ],
             cwd=str(Path.cwd()),
         )
-        async with stdio_client(parameters) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+        async with (
+            stdio_client(parameters) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
                 await session.initialize()
                 result = await session.list_tools()
                 return {tool.name for tool in result.tools}
