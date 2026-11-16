@@ -285,7 +285,7 @@ def test_blast_radius_traverses_normalized_lockfile_package_nodes(tmp_path):
         registered.project_id,
         "package-lock.json#package:react@19.0.0",
     )
-    impact = result.result["impact_by_relation"]["lockfile:npm:edge"]
+    impact = result.result["impact_by_relation"]["node_package_graph"]
 
     assert impact["direct_dependents"] == [
         "package-lock.json#package:react-dom@19.0.0"
