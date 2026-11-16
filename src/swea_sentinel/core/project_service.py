@@ -63,8 +63,8 @@ class ProjectService:
                 project_name = existing["name"]
             else:
                 conn.execute(
-                    "INSERT INTO projects(project_id,name,root_path,created_at) VALUES(?,?,?,?)",
-                    (project_id, project_name, str(root), now),
+                    "INSERT INTO projects(project_id,name,root_path,created_at,workspace_id) VALUES(?,?,?,?,?)",
+                    (project_id, project_name, str(root), now, "local"),
                 )
         return ToolResult(
             project_id=project_id,
