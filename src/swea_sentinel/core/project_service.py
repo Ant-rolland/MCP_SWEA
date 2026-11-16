@@ -251,6 +251,34 @@ class ProjectService:
                 "DELETE FROM dependencies WHERE project_id = ? AND dependency_type = 'python_import'",
                 (project_id,),
             )
+            # Link JavaScript/TypeScript source imports only to one exact,
+            # uniquely locked npm package name. Package aliases are not guessed.
+            locked_node_packages: list[tuple[str, str, str]] = []
+            for manifest_item in report["manifests"]:
+                if (
+                    manifest_item["ecosystem"] != "node"
+                    or manifest_item["kind"] != "lockfile"
+                ):
+                    continue
+                lock_path = manifest_item["path"]
+                for package in manifest_item.get("locked_packages", []):
+                    locked_node_packages.append((
+                        package["name"],
+                        lock_path,
+                        f"{lock_path}#package:{package['name']}@{package['version']}",
+                    ))
+            for import_edge in node_import_report["edges"]:
+                candidates = [
+                    package for package in locked_node_packages
+                    if package[0] == import_edge["import_root"]
+                ]
+                if len(candidates) != 1:
+                    continue
+                dependency_rows.append((
+                    str(uuid4()), project_id,
+                    import_edge["source"], candidates[0][2],
+                    "node_package_graph",
+                ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
@@ -278,7 +306,10 @@ class ProjectService:
             status=status,
             result={"assessment_id": assessment_id, **report},
             evidence=evidence,
-            limitations=list(report["limitations"]),
+            limitations=[
+                *list(report["limitations"]),
+                *node_import_report["limitations"],
+            ],
             duration_ms=int(report["duration_ms"]),
         )
 
@@ -413,6 +444,13 @@ class ProjectService:
         _, root = self._project(project_id)
         report = analyze_dependency_manifests(root, self.index_settings)
         python_import_report = analyze_python_imports(root, self.index_settings)
+        from swea_sentinel.core.node_source_import_analyzer import analyze_node_source_imports
+
+        node_import_report = analyze_node_source_imports(root, self.index_settings)
+        report["node_source_imports"] = node_import_report
+        report["duration_ms"] = int(report["duration_ms"]) + int(
+            node_import_report["duration_ms"]
+        )
         assessment_id = str(uuid4())
         now = datetime.now(UTC).isoformat()
         evidence = [
@@ -426,9 +464,24 @@ class ProjectService:
             )
             for item in report["manifests"]
         ]
+        evidence.extend(
+            Evidence(
+                kind="node_source_imports",
+                description="JavaScript/TypeScript source file inspected for literal external package imports",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=source_path,
+                sha256=digest,
+            )
+            for source_path, digest in node_import_report["file_hashes"].items()
+        )
         status = (
             ExecutionStatus.PARTIAL
-            if report["truncated"] or report["parse_errors"]
+            if (
+                report["truncated"]
+                or report["parse_errors"]
+                or node_import_report["truncated"]
+            )
             else ExecutionStatus.COMPLETED
         )
         with self.db.connect() as conn:
@@ -442,7 +495,8 @@ class ProjectService:
             )
             conn.execute(
                 "DELETE FROM dependencies WHERE project_id = ? "
-                "AND (dependency_type LIKE 'manifest:%' OR dependency_type LIKE 'lockfile:%')",
+                "AND (dependency_type LIKE 'manifest:%' OR dependency_type LIKE 'lockfile:%' "
+                "OR dependency_type IN ('python_package_graph', 'node_package_graph'))",
                 (project_id,),
             )
             dependency_rows = [
@@ -509,6 +563,8 @@ class ProjectService:
                     relation_type = (
                         "python_package_graph"
                         if lockfile_format == "python"
+                        else "node_package_graph"
+                        if item["ecosystem"] == "node"
                         else f"lockfile:{lockfile_format}:edge"
                     )
                     dependency_rows.append((
