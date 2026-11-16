@@ -142,7 +142,10 @@ class Database:
         # SQLite files can contain project paths, findings, and audit metadata.
         # Create/restrict the database before SQLite opens it so a permissive
         # process umask cannot expose the file to other local users.
-        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        if self.path.is_symlink():
+            raise ValueError("SQLite database path must not be a symlink")
+        open_flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(self.path, open_flags, 0o600)
         try:
             if os.name == "posix":
                 os.fchmod(descriptor, 0o600)
