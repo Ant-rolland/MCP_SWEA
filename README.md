@@ -57,6 +57,7 @@ ruff check src tests
 mypy src
 pytest
 python -m compileall -q src tests
+python -m pip wheel . --no-deps --wheel-dir dist
 swea-sentinel --help
 ```
 
