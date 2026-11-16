@@ -641,19 +641,23 @@ class ProjectService:
                     ))
             for import_edge in go_import_report["edges"]:
                 import_path = import_edge["import_path"]
-                candidates = [
-                    package for package in locked_go_packages
+                module_candidates = [
+                    module_candidate
+                    for module_candidate in locked_go_packages
                     if (
-                        import_path == package[0]
-                        or import_path.startswith(package[0] + "/")
+                        import_path == module_candidate[0]
+                        or import_path.startswith(module_candidate[0] + "/")
                     )
                 ]
-                if not candidates:
+                if not module_candidates:
                     continue
-                longest_prefix = max(len(package[0]) for package in candidates)
+                longest_prefix = max(
+                    len(module_candidate[0]) for module_candidate in module_candidates
+                )
                 longest_candidates = [
-                    package for package in candidates
-                    if len(package[0]) == longest_prefix
+                    module_candidate
+                    for module_candidate in module_candidates
+                    if len(module_candidate[0]) == longest_prefix
                 ]
                 if len(longest_candidates) != 1:
                     continue
