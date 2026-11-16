@@ -614,3 +614,101 @@ def test_go_source_import_attribution_skips_ambiguous_module_versions(tmp_path):
             (registered.project_id,),
         ).fetchone()[0]
     assert count == 0
+
+
+def test_rust_source_imports_link_to_normalized_cargo_crates_and_blast_radius(tmp_path):
+    project = tmp_path / "rust-source-graph"
+    project.mkdir()
+    (project / "Cargo.lock").write_text(
+        'version = 3\n\n'
+        '[[package]]\nname = "app"\nversion = "0.1.0"\n'
+        'dependencies = ["serde 1.0.210"]\n\n'
+        '[[package]]\nname = "serde"\nversion = "1.0.210"\n'
+        'dependencies = ["serde-derive 1.0.210"]\n\n'
+        '[[package]]\nname = "serde-derive"\nversion = "1.0.210"\n',
+        encoding="utf-8",
+    )
+    (project / "main.rs").write_text(
+        "use serde::Serialize;\n"
+        "use std::fmt;\n"
+        "use crate::local::Thing;\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["rust_source_imports"]["edge_count"] == 1
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? AND dependency_type = 'rust_package_graph'",
+            (registered.project_id,),
+        ).fetchall()
+    assert {
+        (row["source_path"], row["target_name"], row["dependency_type"])
+        for row in rows
+    } == {
+        ("main.rs", "Cargo.lock#package:serde@1.0.210", "rust_package_graph"),
+        (
+            "Cargo.lock#package:app@0.1.0",
+            "Cargo.lock#package:serde@1.0.210",
+            "rust_package_graph",
+        ),
+        (
+            "Cargo.lock#package:serde@1.0.210",
+            "Cargo.lock#package:serde-derive@1.0.210",
+            "rust_package_graph",
+        ),
+    }
+
+    impact = service.check_blast_radius(
+        registered.project_id, "Cargo.lock#package:serde-derive@1.0.210"
+    )
+    rust_impact = impact.result["impact_by_relation"]["rust_package_graph"]
+    assert rust_impact["direct_dependents"] == [
+        "Cargo.lock#package:serde@1.0.210"
+    ]
+    assert {
+        item["identifier"] for item in rust_impact["transitive_dependents"]
+    } == {
+        "Cargo.lock#package:app@0.1.0",
+        "main.rs",
+    }
+
+    service.analyze_dependencies(registered.project_id)
+    with db.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'rust_package_graph'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert count == 3
+
+
+def test_rust_source_import_attribution_skips_ambiguous_crate_versions(tmp_path):
+    project = tmp_path / "rust-ambiguous"
+    project.mkdir()
+    (project / "Cargo.lock").write_text(
+        'version = 3\n\n'
+        '[[package]]\nname = "serde"\nversion = "1.0.0"\n\n'
+        '[[package]]\nname = "serde"\nversion = "2.0.0"\n',
+        encoding="utf-8",
+    )
+    (project / "main.rs").write_text(
+        "use serde::Serialize;\n", encoding="utf-8"
+    )
+    service = ProjectService(Database(tmp_path / "db.sqlite"))
+    registered = service.initialize(str(project))
+
+    service.analyze_dependencies(registered.project_id)
+
+    with service.db.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'rust_package_graph' AND source_path = 'main.rs'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert count == 0
