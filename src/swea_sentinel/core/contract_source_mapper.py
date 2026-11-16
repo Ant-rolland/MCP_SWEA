@@ -425,22 +425,19 @@ def _cross_module_router_prefixes(
             parent = resolve_router(
                 node.func.value, path, routers, module_aliases, symbol_aliases
             )
-            if parent is None:
-                parent_prefixes: list[str] | None = [""]
-            elif parent[0] == path:
-                parent_prefixes = routers.get(parent[1])
-            else:
-                prefix_node = next(
-                    (item.value for item in node.keywords if item.arg == "prefix"),
-                    None,
-                )
-                mount_prefix = (
-                    "" if prefix_node is None else _literal_path(prefix_node)
-                )
+            prefix_node = next(
+                (item.value for item in node.keywords if item.arg == "prefix"),
+                None,
+            )
+            mount_prefix = (
+                "" if prefix_node is None else _literal_path(prefix_node)
+            )
+            if parent is not None:
                 pending_mounts.append(
                     (parent, (child_path, child_name), mount_prefix)
                 )
                 continue
+            parent_prefixes: list[str] | None = [""]
 
             prefix_node = next(
                 (item.value for item in node.keywords if item.arg == "prefix"), None
@@ -480,15 +477,17 @@ def _cross_module_router_prefixes(
             parent_path, parent_name = parent
             child_path, child_name = child
             parent_mapping = external.get(parent_path, {})
-            if parent_name not in parent_mapping:
-                remaining.append((parent, child, mount_prefix))
-                continue
+            if parent_name in parent_mapping:
+                parent_prefixes = parent_mapping[parent_name]
+            else:
+                local_parent_mapping = local_prefixes.get(parent_path, {})
+                if parent_name not in local_parent_mapping:
+                    remaining.append((parent, child, mount_prefix))
+                    continue
+                parent_prefixes = local_parent_mapping[parent_name]
 
             target = external.setdefault(child_path, {})
-            if (
-                mount_prefix is None
-                or parent_mapping[parent_name] is None
-            ):
+            if mount_prefix is None or parent_prefixes is None:
                 if target.get(child_name) is not None:
                     target[child_name] = None
                     changed = True
@@ -505,7 +504,7 @@ def _cross_module_router_prefixes(
 
             mounted = sorted({
                 _join_paths(parent_prefix, mount_prefix, child_prefix)
-                for parent_prefix in parent_mapping[parent_name] or []
+                for parent_prefix in parent_prefixes or []
                 for child_prefix in child_prefixes
             })
             existing = target.get(child_name, [])
