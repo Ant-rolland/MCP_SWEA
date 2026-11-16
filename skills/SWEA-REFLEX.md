@@ -28,6 +28,7 @@ SWEA Sentinel is an evidence-aware engineering governance MCP service. It helps 
 | `swea_analyze_contracts` | Inspect OpenAPI and JSON Schema documents, references, and exact Python route mappings. |
 | `swea_analyze_code_quality` | Check selected Python AST code-quality patterns. |
 | `swea_analyze_security` | Check selected Python AST security-sensitive API patterns. |
+| `swea_get_risk_summary` | Summarize open findings from the latest assessment in each domain. |
 | `swea_check_blast_radius` | Trace direct and transitive dependents within one persisted relation layer. |
 
 ## Recommended analysis sequence
