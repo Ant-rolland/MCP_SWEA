@@ -183,13 +183,13 @@ def _pnpm_package_name_version(package_key: str) -> tuple[str, str] | None:
         if separator < 0 and slash >= 0:
             legacy_parts = key.split("/")
             if len(legacy_parts) == 3 and legacy_parts[2]:
-                return f"@{legacy_parts[1]}", legacy_parts[2]
+                return key.split("/")[0] + "/" + legacy_parts[1], legacy_parts[2]
     else:
         separator = key.find("@")
-        if separator < 0 and key.count("/") == 2:
+        if separator < 0 and key.count("/") == 1:
             legacy_parts = key.split("/")
-            if legacy_parts[2]:
-                return legacy_parts[1], legacy_parts[2]
+            if len(legacy_parts) == 2 and legacy_parts[1]:
+                return legacy_parts[0], legacy_parts[1]
     if separator <= 0:
         return None
     name = key[:separator]
