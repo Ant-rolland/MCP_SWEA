@@ -340,3 +340,44 @@ example.com/another v2.0.0 h1:older-version=
     ]
     assert all(item["selected_version_determined"] is False for item in correlations.values())
     assert manifest["go_sum_correlation_status"] == "checksum_presence_only"
+
+
+def test_parses_composer_lock_packages_requirements_and_psr4_namespaces(tmp_path):
+    (tmp_path / "composer.json").write_text(
+        json.dumps({"require": {"vendor/library": "^2", "php": "^8.2"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "composer.lock").write_text(json.dumps({
+        "packages": [{
+            "name": "vendor/library",
+            "version": "2.1.0",
+            "require": {"psr/log": "^3", "php": "^8.1"},
+            "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+        }],
+        "packages-dev": [{
+            "name": "vendor/test-tools",
+            "version": "1.0.0",
+            "autoload": {"psr-4": {"Vendor\\\\Tests\\\\": ["src/", "tests/"]}},
+        }],
+    }), encoding="utf-8")
+
+    report = analyze_dependency_manifests(tmp_path, ProjectIndexSettings())
+    manifests = {item["path"]: item for item in report["manifests"]}
+
+    assert manifests["composer.json"]["ecosystem"] == "php"
+    assert manifests["composer.json"]["declared_dependency_names"] == ["vendor/library"]
+    lock = manifests["composer.lock"]
+    assert {item["name"] for item in lock["locked_packages"]} == {
+        "vendor/library", "vendor/test-tools",
+    }
+    assert lock["locked_dependency_edges"] == [{
+        "source": "vendor/library", "target": "psr/log",
+        "source_install_path": "vendor/library@2.1.0",
+    }]
+    assert {
+        (item["prefix"], item["package"], item["version"])
+        for item in lock["locked_php_namespaces"]
+    } == {
+        ("Vendor\\\\Library", "vendor/library", "2.1.0"),
+        ("Vendor\\\\Tests", "vendor/test-tools", "1.0.0"),
+    }
