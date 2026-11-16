@@ -299,10 +299,11 @@ require example.com/another v2.1.0
         encoding="utf-8",
     )
     (tmp_path / "go.sum").write_text(
-        "example.com/lib v1.2.3 h1:module=\\n"
-        "example.com/lib v1.2.3/go.mod h1:gomod=\\n"
-        "example.com/indirect v0.8.0/go.mod h1:gomod-only=\\n"
-        "example.com/another v2.0.0 h1:older-version=\\n",
+        """example.com/lib v1.2.3 h1:module=
+example.com/lib v1.2.3/go.mod h1:gomod=
+example.com/indirect v0.8.0/go.mod h1:gomod-only=
+example.com/another v2.0.0 h1:older-version=
+""",
         encoding="utf-8",
     )
     report = analyze_dependency_manifests(tmp_path)
