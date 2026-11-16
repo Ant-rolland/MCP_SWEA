@@ -141,3 +141,63 @@ def test_invalid_npm_lockfile_is_reported(tmp_path):
     assert report["parse_errors"] == [
         {"path": "package-lock.json", "error": "invalid_lockfile"}
     ]
+
+
+
+def test_parses_pnpm_lockfile_versions_and_dependency_edges(tmp_path):
+    (tmp_path / "pnpm-lock.yaml").write_text(
+        """lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      alpha:
+        specifier: ^1.0.0
+        version: 1.2.0
+packages:
+  alpha@1.2.0:
+    resolution: {integrity: sha512-example}
+  '@scope/tool@2.4.1':
+    resolution: {integrity: sha512-example}
+snapshots:
+  alpha@1.2.0:
+    dependencies:
+      '@scope/tool': 2.4.1
+  '@scope/tool@2.4.1': {}
+""",
+        encoding="utf-8",
+    )
+
+    report = analyze_dependency_manifests(tmp_path)
+    lock = report["manifests"][0]
+
+    assert lock["lockfile_version"] == "9.0"
+    assert {(item["name"], item["version"]) for item in lock["locked_packages"]} == {
+        ("alpha", "1.2.0"),
+        ("@scope/tool", "2.4.1"),
+    }
+    assert lock["locked_dependency_edges"] == [{
+        "source": "alpha",
+        "target": "@scope/tool",
+        "source_install_path": "alpha@1.2.0",
+    }]
+
+
+def test_parses_pnpm_legacy_scoped_lockfile_keys(tmp_path):
+    (tmp_path / "pnpm-lock.yaml").write_text(
+        """lockfileVersion: '5.4'
+packages:
+  /left-pad/1.3.0: {}
+  /@scope/tool/2.4.1:
+    dependencies:
+      left-pad: 1.3.0
+""",
+        encoding="utf-8",
+    )
+
+    lock = analyze_dependency_manifests(tmp_path)["manifests"][0]
+
+    assert {(item["name"], item["version"]) for item in lock["locked_packages"]} == {
+        ("left-pad", "1.3.0"),
+        ("@scope/tool", "2.4.1"),
+    }
+    assert lock["locked_dependency_edges"][0]["target"] == "left-pad"
