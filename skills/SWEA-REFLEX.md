@@ -37,7 +37,7 @@ SWEA Sentinel is an evidence-aware engineering governance MCP service. It helps 
 2. Call `swea_analyze_project` and `swea_get_project_context` to understand the indexed scope.
 3. Run the relevant specialist analyses:
    - `swea_analyze_architecture` for Python import relationships.
-   - `swea_analyze_dependencies` for manifests and lockfiles.
+   - `swea_analyze_dependencies` for manifests, lockfiles, and source-to-package attribution where explicit lock metadata supports it (Python, Node.js, Go, Rust, and PHP Composer PSR-4).
    - `swea_analyze_contracts` for API/data contracts and recognized Python route declarations.
    - `swea_analyze_code_quality` for the currently implemented code-quality rules.
    - `swea_analyze_security` for the currently implemented security-sensitive API rules.
