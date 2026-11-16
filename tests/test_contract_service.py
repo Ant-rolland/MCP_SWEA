@@ -112,3 +112,36 @@ def test_contract_assessment_is_partial_when_python_route_scan_has_parse_errors(
     assert result.status.value == "partial"
     assert result.result["route_scan"]["parse_errors"][0]["path"] == "broken.py"
     assert result.result["source_mappings"][0]["route_scan_complete"] is False
+
+
+def test_contract_mapping_uses_composed_fastapi_router_prefixes(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/api/v1/items": {
+                "get": {"responses": {"200": {"description": "ok"}}}
+            }
+        },
+    }), encoding="utf-8")
+    (project / "api.py").write_text(
+        "from fastapi import APIRouter, FastAPI\n"
+        "app = FastAPI()\n"
+        "router = APIRouter(prefix='/items')\n"
+        "@router.get('/')\n"
+        "def list_items(): pass\n"
+        "app.include_router(router, prefix='/api/v1')\n",
+        encoding="utf-8",
+    )
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    result = service.analyze_contracts(registered.project_id)
+
+    assert result.result["source_mapping_count"] == 1
+    mapping = result.result["source_mappings"][0]
+    assert mapping["mapping_status"] == "matched"
+    assert mapping["path"] == "/api/v1/items"
+    assert mapping["sources"][0]["source_path"] == "api.py"
