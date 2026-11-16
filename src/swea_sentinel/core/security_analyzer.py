@@ -346,6 +346,60 @@ class _SecurityVisitor(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
+    @staticmethod
+    def _assignment_names(target: ast.expr) -> set[str]:
+        if isinstance(target, ast.Name):
+            return {target.id.casefold()}
+        if isinstance(target, ast.Attribute):
+            return {target.attr.casefold()}
+        if isinstance(target, (ast.Tuple, ast.List)):
+            return {
+                name
+                for element in target.elts
+                for name in _SecurityVisitor._assignment_names(element)
+            }
+        return set()
+
+    def _check_contextual_aws_secret(
+        self, node: ast.AST, targets: list[ast.expr], value: ast.expr
+    ) -> None:
+        names = {
+            name
+            for target in targets
+            for name in self._assignment_names(target)
+        }
+        if not names.intersection({"aws_secret_access_key", "aws_secret_key"}):
+            return
+        if not (
+            isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and re.fullmatch(r"[A-Za-z0-9/+=]{40}", value.value)
+        ):
+            return
+        self._add(
+            code="PYTHON_HARDCODED_CREDENTIAL",
+            severity="high",
+            confidence="HIGH_CONFIDENCE",
+            node=node,
+            message=(
+                "A 40-character AWS secret access key is assigned to a "
+                "credential-named variable; the value is intentionally redacted."
+            ),
+            recommendation=(
+                "Remove the key from source, load it from a secret manager or "
+                "protected environment, and rotate it if it was real."
+            ),
+        )
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self._check_contextual_aws_secret(node, node.targets, node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self._check_contextual_aws_secret(node, [node.target], node.value)
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         function = node.func
         if isinstance(function, ast.Name) and function.id in {"eval", "exec"}:
