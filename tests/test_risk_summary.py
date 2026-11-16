@@ -57,3 +57,23 @@ def test_risk_summary_without_assessments_is_explicitly_partial(tmp_path):
     assert summary.status.value == "partial"
     assert summary.result["domains_assessed"] == 0
     assert summary.result["overall"]["open_finding_count"] == 0
+
+
+def test_risk_summary_returns_current_findings_and_their_evidence(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "app.py").write_text(
+        "import subprocess\nsubprocess.run(command, shell=True)\n",
+        encoding="utf-8",
+    )
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+    service.analyze_security(registered.project_id)
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "completed"
+    assert summary.result["overall"]["open_finding_count"] == 1
+    assert summary.result["overall"]["severity_counts"]["high"] == 1
+    assert summary.findings[0].code == "PYTHON_SUBPROCESS_SHELL_TRUE"
+    assert summary.evidence[0].kind == "python_security_source"
