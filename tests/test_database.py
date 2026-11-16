@@ -108,9 +108,10 @@ def test_workspace_migration_backfills_existing_projects(tmp_path):
 
 def test_projects_cannot_be_created_without_workspace_scope(tmp_path):
     db = Database(tmp_path / "sentinel.db")
-    with pytest.raises(sqlite3.IntegrityError, match="workspace_id is required"):
-        with db.connect() as conn:
-            conn.execute(
-                "INSERT INTO projects(project_id,name,root_path,created_at) "
-                "VALUES ('unscoped','Unscoped','/unscoped','2026-01-01T00:00:00Z')"
-            )
+    with db.connect() as conn, pytest.raises(
+        sqlite3.IntegrityError, match="workspace_id is required"
+    ):
+        conn.execute(
+            "INSERT INTO projects(project_id,name,root_path,created_at) "
+            "VALUES ('unscoped','Unscoped','/unscoped','2026-01-01T00:00:00Z')"
+        )
