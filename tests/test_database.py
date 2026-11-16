@@ -1,6 +1,6 @@
 import os
-import stat
 import sqlite3
+import stat
 
 import pytest
 
