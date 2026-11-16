@@ -419,7 +419,13 @@ class ProjectService:
                 if item["ecosystem"] != "node" or item["kind"] != "lockfile":
                     continue
                 lockfile_path = item["path"]
-                lockfile_format = "pnpm" if Path(lockfile_path).name == "pnpm-lock.yaml" else "npm"
+                lock_name = Path(lockfile_path).name
+                lockfile_format = (
+                    "pnpm" if lock_name == "pnpm-lock.yaml" else
+                    "yarn" if lock_name == "yarn.lock" else
+                    "python" if lock_name in {"poetry.lock", "Pipfile.lock"} else
+                    "npm"
+                )
                 for package in item.get("locked_packages", []):
                     install_path = package["install_path"]
                     dependency_rows.append((
