@@ -372,6 +372,48 @@ def _parse_python_lockfile(path: Path, content: bytes) -> dict[str, Any]:
             'locked_dependency_edges': edges, 'locked_dependency_edge_count': len(edges)}
 
 
+def _parse_cargo_lockfile(content: bytes) -> dict[str, Any]:
+    data = tomllib.loads(content.decode('utf-8-sig'))
+    records = data.get('package', [])
+    if not isinstance(records, list):
+        raise ValueError('Cargo package section must be an array')
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        name, version = record.get('name'), record.get('version')
+        if not isinstance(name, str) or not isinstance(version, str):
+            continue
+        install_path = name + '@' + version
+        packages.append({'name': name, 'version': version, 'install_path': install_path})
+        deps = record.get('dependencies', [])
+        if isinstance(deps, list):
+            for dependency in deps:
+                parts = str(dependency).split()
+                if parts:
+                    edges.append({'source': name, 'target': parts[0], 'source_install_path': install_path})
+    return {'lockfile_version': str(data.get('version', 'unknown')), 'locked_packages': packages,
+            'locked_package_count': len(packages), 'locked_dependency_edges': edges,
+            'locked_dependency_edge_count': len(edges)}
+
+
+def _parse_go_sum(content: bytes) -> dict[str, Any]:
+    packages: dict[tuple[str, str], dict[str, str]] = {}
+    for line in content.decode('utf-8-sig').splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0].startswith('//'):
+            continue
+        module, version = parts[0], parts[1]
+        if version.endswith('/go.mod'):
+            version = version[:-7]
+        packages[(module, version)] = {'name': module, 'version': version, 'install_path': module + '@' + version}
+    records = [packages[key] for key in sorted(packages)]
+    return {'lockfile_version': 'go.sum', 'locked_packages': records,
+            'locked_package_count': len(records), 'locked_dependency_edges': [],
+            'locked_dependency_edge_count': 0}
+
+
 def _classify(name: str) -> tuple[str, str] | None:
     if name == "package.json":
         return "node", "manifest"
@@ -468,6 +510,10 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_yarn_lockfile(content)
                     elif ecosystem == "python" and path.name in {"poetry.lock", "Pipfile.lock"}:
                         lockfile_details = _parse_python_lockfile(path, content)
+                    elif ecosystem == "rust" and path.name == "Cargo.lock":
+                        lockfile_details = _parse_cargo_lockfile(content)
+                    elif ecosystem == "go" and path.name == "go.sum":
+                        lockfile_details = _parse_go_sum(content)
                     if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
