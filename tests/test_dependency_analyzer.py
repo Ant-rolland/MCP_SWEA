@@ -226,3 +226,29 @@ def test_parses_yarn_classic_lockfile_dependencies(tmp_path):
         ('left-pad', '1.3.0'), ('right-pad', '2.1.0')}
     assert lock['locked_dependency_edges'] == [{
         'source': 'left-pad', 'target': 'right-pad', 'source_install_path': 'left-pad@^1.0.0'}]
+
+
+
+def test_parses_poetry_lockfile_packages_and_edges(tmp_path):
+    (tmp_path / 'poetry.lock').write_text('''[[package]]\nname = "httpx"\nversion = "0.27.2"\n[package.dependencies]\ncertifi = "*"\n\n[[package]]\nname = "certifi"\nversion = "2024.8.30"\n''', encoding='utf-8')
+    lock = analyze_dependency_manifests(tmp_path)['manifests'][0]
+    assert lock['lockfile_version'] == 'poetry'
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('httpx', '0.27.2'), ('certifi', '2024.8.30')}
+    assert lock['locked_dependency_edges'] == [{
+        'source': 'httpx', 'target': 'certifi', 'source_install_path': 'httpx@0.27.2'}]
+
+
+def test_parses_pipfile_lock_packages_and_edges(tmp_path):
+    (tmp_path / 'Pipfile.lock').write_text(json.dumps({
+        '_meta': {'requires': {'python_version': '3.12'}},
+        'default': {'requests': {'version': '==2.32.3', 'dependencies': {'urllib3': '>=1.0'}},
+                    'urllib3': {'version': '==2.2.3'}},
+        'develop': {'pytest': {'version': '==8.3.3'}},
+    }), encoding='utf-8')
+    lock = analyze_dependency_manifests(tmp_path)['manifests'][0]
+    assert lock['lockfile_version'] == 'pipfile'
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('requests', '2.32.3'), ('urllib3', '2.2.3'), ('pytest', '8.3.3')}
+    assert lock['locked_dependency_edges'] == [{
+        'source': 'requests', 'target': 'urllib3', 'source_install_path': 'requests@2.32.3'}]
