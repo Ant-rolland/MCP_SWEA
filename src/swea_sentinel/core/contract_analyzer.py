@@ -1,7 +1,6 @@
 """Bounded, read-only discovery and structural checks for API/data contracts."""
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
@@ -411,7 +410,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             "Path-parameter checks cover inline definitions; operations using parameter $ref entries are skipped rather than guessed.",
             "Response checks verify the responses object and inline descriptions; response $ref targets are not expanded.",
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
-            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",\n            "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",\n            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",
+            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",
             "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",
             "No project code is executed and no files are modified.",
         ],
