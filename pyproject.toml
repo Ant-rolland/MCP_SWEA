@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-cov>=5.0", "ruff>=0.9", "mypy>=1.13"]
+dev = ["pytest>=8.3", "pytest-cov>=5.0", "ruff>=0.9", "mypy>=1.13", "types-PyYAML>=6.0"]
 
 [project.scripts]
 swea-sentinel = "swea_sentinel.cli:main"
