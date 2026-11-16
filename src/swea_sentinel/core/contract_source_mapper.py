@@ -289,15 +289,18 @@ def _cross_module_router_prefixes(
     parsed_files: list[tuple[str, ast.Module]],
 ) -> dict[str, dict[str, list[str] | None]]:
     """Resolve one-level literal router imports/mounts across discovered Python modules."""
+    def module_name_for_path(path: str) -> str:
+        parts = list(Path(path).with_suffix("").parts)
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        return ".".join(parts)
+
     module_paths: dict[str, list[str]] = {}
     local_prefixes: dict[str, dict[str, list[str] | None]] = {}
     trees = {path: tree for path, tree in parsed_files}
 
     for path, tree in parsed_files:
-        module_parts = list(Path(path).with_suffix("").parts)
-        if module_parts and module_parts[-1] == "__init__":
-            module_parts.pop()
-        module_name = ".".join(module_parts)
+        module_name = module_name_for_path(path)
         module_paths.setdefault(module_name, []).append(path)
         local_prefixes[path] = _router_prefixes(tree)
 
@@ -330,6 +333,8 @@ def _cross_module_router_prefixes(
         module_aliases: dict[str, str],
         symbol_aliases: dict[str, tuple[str, str]],
     ) -> tuple[str, str] | None:
+        if expression is None:
+            return None
         if isinstance(expression, ast.Name):
             if expression.id in routers:
                 return current_path, expression.id
@@ -353,8 +358,9 @@ def _cross_module_router_prefixes(
             return None
         suffix = parts[1:]
         for module_length in range(len(suffix) - 1, -1, -1):
+            base_module_name = module_name_for_path(base_path)
             module_name = ".".join(
-                [Path(base_path).with_suffix("").as_posix().replace("/", "."), *suffix[:module_length]]
+                (base_module_name, *suffix[:module_length])
             )
             candidate_path = unique_modules.get(module_name)
             if candidate_path is not None:
