@@ -132,7 +132,7 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
     @mcp.tool()
     @_audit_tool(database, "swea_check_blast_radius")
     def swea_check_blast_radius(project_id: str, target_path: str) -> dict[str, Any]:
-        """List direct and transitive Python dependents of a project-relative file."""
+        """List direct and transitive dependents from persisted per-ecosystem dependency graphs."""
         payload = ProjectImpactInput(project_id=project_id, target_path=target_path)
         return service.check_blast_radius(
             payload.project_id, payload.target_path
