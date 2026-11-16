@@ -14,6 +14,20 @@ approvals with project_id foreign keys. Tool executions and audit events are
 recorded, including failed invocations. These records do not yet establish an
 authenticated actor or tenant boundary.
 
+## Workspace schema foundation (implemented, not yet authorization)
+
+Schema migration v2 introduces `workspaces`, `principals`, and
+`workspace_memberships`, assigns existing projects to a `local` workspace, and
+requires newly inserted projects to provide a workspace ID. Tool execution and
+audit rows now have nullable workspace attribution columns; audit rows also
+have a nullable principal reference. The bootstrap `local-owner` membership is
+an installation-local schema anchor, **not an authenticated identity**.
+
+This migration is groundwork only. Project reads and writes are not yet
+workspace-scoped, membership is not yet consulted by service operations, and
+MCP requests are not yet authenticated. Do not treat the schema as tenant
+isolation or enable remote access on this basis.
+
 ## Required authorization model
 
 Introduce an authenticated principal supplied by the transport/session layer;
@@ -64,10 +78,11 @@ commercial multi-tenant deployment.
 
 ## Delivery sequence
 
-- **GOV-1 — Identity context:** define principal/session contracts for STDIO and
+- **GOV-1 — Identity context (pending):** define principal/session contracts for STDIO and
   HTTP without trusting tool-supplied identity fields.
-- **GOV-2 — Workspace schema:** add migration, workspace ownership, memberships,
-  and explicit roles; migrate existing local projects into a local workspace.
+- **GOV-2 — Workspace schema (foundation implemented):** migration v2 creates
+  workspaces, principals, memberships, roles, and backfills existing local
+  projects. Remaining: authenticated ownership and complete workspace scoping.
 - **GOV-3 — Service authorization:** centralize capability checks and enforce
   workspace/project scope at every service and persistence boundary.
 - **GOV-4 — Audit attribution:** add actor/workspace/request metadata and
