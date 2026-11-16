@@ -190,7 +190,9 @@ def _registration_routes(
     method_keyword = next(
         (item.value for item in node.keywords if item.arg == "methods"), None
     )
-    if method_keyword is None:
+    if method_keyword is None or (
+        isinstance(method_keyword, ast.Constant) and method_keyword.value is None
+    ):
         methods = ["GET"]
     else:
         parsed = _literal_methods(method_keyword)
