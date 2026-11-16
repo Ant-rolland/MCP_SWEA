@@ -276,3 +276,24 @@ def test_contract_mapping_marks_truncated_route_scan_as_incomplete(tmp_path, mon
     assert report["truncated_reason"] == "python_route_scan:maximum_file_count"
     assert report["source_mappings"][0]["mapping_status"] == "unmapped"
     assert report["source_mappings"][0]["route_scan_complete"] is False
+
+
+def test_contract_mapping_marks_python_syntax_errors_as_incomplete(tmp_path):
+    (tmp_path / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items": {
+                "get": {"responses": {"200": {"description": "ok"}}}
+            }
+        },
+    }), encoding="utf-8")
+    (tmp_path / "broken.py").write_text(
+        "@app.get('/items')\ndef broken(:\n", encoding="utf-8"
+    )
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["route_scan"]["parse_errors"][0]["path"] == "broken.py"
+    assert report["source_mappings"][0]["mapping_status"] == "unmapped"
+    assert report["source_mappings"][0]["route_scan_complete"] is False
