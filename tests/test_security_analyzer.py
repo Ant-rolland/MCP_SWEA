@@ -123,3 +123,62 @@ def test_detects_known_credential_formats_without_echoing_values(tmp_path):
     assert all(github_token not in item["message"] for item in findings)
     assert all(aws_key_id not in item["message"] for item in findings)
     assert all(private_key_marker not in item["message"] for item in findings)
+
+
+def test_resolves_unshadowed_security_api_import_aliases(tmp_path):
+    (tmp_path / "aliases.py").write_text(
+        "import subprocess as sp\n"
+        "from subprocess import run as run_cmd\n"
+        "import os as operating_system\n"
+        "from os import system as shell\n"
+        "import yaml as y\n"
+        "from yaml import unsafe_load as unsafe_yaml, load as yaml_load, SafeLoader as Safe\n"
+        "import requests as req\n"
+        "from requests import get as http_get\n"
+        "import ssl as tls\n"
+        "from ssl import _create_unverified_context as unverified\n"
+        "import pickle as serializer\n"
+        "from pickle import loads as deserialize\n"
+        "sp.run(command, shell=True)\n"
+        "run_cmd(command, shell=True)\n"
+        "operating_system.system(command)\n"
+        "shell(command)\n"
+        "y.unsafe_load(payload)\n"
+        "unsafe_yaml(payload)\n"
+        "yaml_load(payload)\n"
+        "yaml_load(payload, Loader=Safe)\n"
+        "req.get(url, verify=False)\n"
+        "http_get(url, verify=False)\n"
+        "tls._create_unverified_context()\n"
+        "unverified()\n"
+        "serializer.loads(data)\n"
+        "deserialize(data)\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+    codes = [item["code"] for item in report["findings"]]
+
+    assert codes.count("PYTHON_SUBPROCESS_SHELL_TRUE") == 2
+    assert codes.count("PYTHON_OS_COMMAND_EXECUTION") == 2
+    assert codes.count("PYTHON_UNSAFE_YAML_LOAD") == 2
+    assert codes.count("PYTHON_YAML_LOAD_WITHOUT_SAFE_LOADER") == 1
+    assert codes.count("PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED") == 2
+    assert codes.count("PYTHON_TLS_UNVERIFIED_SSL_CONTEXT") == 2
+    assert codes.count("PYTHON_PICKLE_DESERIALIZATION") == 2
+
+
+def test_does_not_apply_import_alias_after_rebinding(tmp_path):
+    (tmp_path / "shadowed.py").write_text(
+        "import subprocess as sp\n"
+        "sp = fake_module\n"
+        "sp.run(command, shell=True)\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    assert not any(
+        item["code"] == "PYTHON_SUBPROCESS_SHELL_TRUE"
+        for item in report["findings"]
+    )
