@@ -18,7 +18,7 @@ def test_code_quality_assessment_persists_findings_and_source_evidence(tmp_path)
 
     assert result.status.value == "partial"
     assert result.result["analysis_level"] == "static_python_code_quality"
-    assert len(result.findings) == 2
+    assert len(result.findings) == 3
     assert len(result.evidence) == 1
     assert all(item.evidence_ids == [result.evidence[0].evidence_id] for item in result.findings)
     with database.connect() as conn:
