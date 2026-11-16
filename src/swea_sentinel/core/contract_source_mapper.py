@@ -8,7 +8,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-HTTP_METHODS = {"GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"}
+HTTP_METHODS = {
+    "GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE",
+}
+DECORATOR_METHODS = {method.lower() for method in HTTP_METHODS}
 IGNORED_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache",
     ".pytest_cache", ".next", ".turbo", "dist", "build", "coverage",
@@ -35,7 +38,7 @@ def _decorator_routes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict
         if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
             continue
         name = decorator.func.attr.lower()
-        if name not in {"get", "put", "post", "delete", "options", "head", "patch", "trace", "route", "api_route"}:
+        if name not in DECORATOR_METHODS | {"route", "api_route"}:
             continue
         if not decorator.args or not isinstance(decorator.args[0], ast.Constant):
             continue
@@ -43,8 +46,10 @@ def _decorator_routes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict
         if not isinstance(route, str) or not route.startswith("/"):
             continue
 
-        method_keyword = next((kw.value for kw in decorator.keywords if kw.arg == "methods"), None)
-        if name in {method.lower() for method in HTTP_METHODS}:
+        method_keyword = next(
+            (kw.value for kw in decorator.keywords if kw.arg == "methods"), None
+        )
+        if name in DECORATOR_METHODS:
             methods = [name.upper()]
         elif method_keyword is not None:
             parsed = _literal_methods(method_keyword)
@@ -130,7 +135,10 @@ def discover_python_routes(
             break
 
     unique = {
-        (item["method"], item["path"], item["source_path"], item["function"], item["line"], item["framework_pattern"]): item
+        (
+            item["method"], item["path"], item["source_path"],
+            item["function"], item["line"], item["framework_pattern"],
+        ): item
         for item in routes
     }
     return {
