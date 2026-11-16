@@ -74,6 +74,8 @@ Evidence records include a source path and SHA-256 hash where available. Source 
 - If route scanning is truncated or Python syntax errors occur, unmatched mappings are incomplete, not proof that no implementation exists.
 - Exact unique contract-to-route matches are persisted as a separate blast-radius relation.
 
+The Python code-quality checks also flag exception handlers whose only statement is `pass` or `...`, because they silently discard failures. This is a source-pattern finding, not proof that the exception is unexpected in the application's context.
+
 ### Security
 
 The analyzer also detects a narrow set of known credential formats and private-key markers in Python string literals. It deliberately does not echo matched values in findings. This is not generic secret scanning: arbitrary passwords, unknown token formats, environment files, non-Python files, and credential validity are outside its scope. Treat matches as sensitive and rotate a real credential rather than copying it into logs or tickets.
