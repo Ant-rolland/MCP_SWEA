@@ -210,3 +210,34 @@ def test_security_aliases_are_resolved_per_function_scope(tmp_path):
     ]
     assert len(findings) == 2
     assert [item["line"] for item in findings] == [6, 9]
+
+
+def test_detects_additional_developer_credential_formats_without_echoing_values(tmp_path):
+    tokens = {
+        "gitlab": "glpat-" + "A" * 24,
+        "npm": "npm_" + "B" * 36,
+        "pypi": "pypi-" + "C" * 60,
+        "sendgrid": "SG." + "D" * 22 + "." + "E" * 43,
+        "openai": "sk-proj-" + "F" * 32,
+        "anthropic": "sk-ant-api03-" + "G" * 32,
+        "huggingface": "hf_" + "H" * 32,
+    }
+    source = "".join(
+        f'{name} = "{token}"\n' for name, token in tokens.items()
+    )
+    (tmp_path / "provider_tokens.py").write_text(source, encoding="utf-8")
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_HARDCODED_CREDENTIAL"
+    ]
+    assert len(findings) == len(tokens)
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert all(
+        token not in item["message"]
+        for item in findings
+        for token in tokens.values()
+    )
