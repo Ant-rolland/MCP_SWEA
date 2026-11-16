@@ -344,10 +344,9 @@ def _cross_module_router_prefixes(
             if isinstance(node, ast.Name):
                 parts.append(node.id)
                 return True
-            if isinstance(node, ast.Attribute):
-                if collect(node.value):
-                    parts.append(node.attr)
-                    return True
+            if isinstance(node, ast.Attribute) and collect(node.value):
+                parts.append(node.attr)
+                return True
             return False
 
         if not collect(expression) or len(parts) < 2:
@@ -451,7 +450,7 @@ def _cross_module_router_prefixes(
             existing = target.get(child_name, [])
             if existing is None:
                 continue
-            target[child_name] = sorted(set([*existing, *mounted]))
+            target[child_name] = sorted({*existing, *mounted})
 
     return external
 
