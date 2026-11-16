@@ -268,11 +268,11 @@ def test_detects_context_labelled_aws_secret_access_keys_without_echoing_values(
 def test_detects_context_labelled_aws_secret_keys_in_config_files(tmp_path):
     aws_secret = "B" * 40
     (tmp_path / ".env").write_text(
-        f"AWS_SECRET_ACCESS_KEY={aws_secret}\\n",
+        f"AWS_SECRET_ACCESS_KEY={aws_secret}\n",
         encoding="utf-8",
     )
     (tmp_path / "settings.yaml").write_text(
-        f'aws_secret_key: "{aws_secret}"\\n',
+        f'aws_secret_key: "{aws_secret}"\n',
         encoding="utf-8",
     )
 
