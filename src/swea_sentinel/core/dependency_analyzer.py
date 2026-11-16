@@ -695,7 +695,8 @@ def analyze_dependency_manifests(
             "Discovery is static and does not install packages, invoke package managers, or execute project code.",
             "npm package-lock v1-v3, pnpm, and Yarn Berry lockfiles expose bounded locked package versions and dependency edges; other lockfiles are identified and hashed but not expanded.",
             "Gradle and Maven manifests are identified but dependency declarations are not yet parsed.",
-            "Declared dependency names do not establish versions, reachability, vulnerability status, or runtime usage.",
+            "Declared dependency names do not establish reachability, vulnerability status, or runtime usage.",
+            "Go go.sum correlations show exact checksum-record presence only; they do not determine the version selected by Go's module graph.",
             "Only the listed manifest formats are recognized; custom build systems may be missed.",
         ],
     }
