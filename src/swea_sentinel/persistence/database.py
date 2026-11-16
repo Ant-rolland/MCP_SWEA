@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 SCHEMA_VERSION = 1
 
@@ -197,7 +198,6 @@ class Database:
         payload: dict[str, object],
     ) -> None:
         import json
-        from datetime import datetime, timezone
 
         with self.connect() as conn:
             conn.execute(
@@ -207,7 +207,7 @@ class Database:
                 (
                     execution_id, project_id, tool_name, status, duration_ms,
                     json.dumps(payload, separators=(",", ":"), default=str),
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                 ),
             )
 
