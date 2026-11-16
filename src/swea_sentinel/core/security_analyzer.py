@@ -114,20 +114,21 @@ def _collect_import_aliases(
         if isinstance(node, ast.Import):
             for item in node.names:
                 bound_name = item.asname or item.name.split(".")[0]
-                previous = module_aliases.get(bound_name)
-                if previous is not None and previous != item.name:
-                    ambiguous_names.add(bound_name)
-                module_aliases[bound_name] = (
+                resolved_module = (
                     item.name if item.asname else item.name.split(".")[0]
                 )
+                previous_module = module_aliases.get(bound_name)
+                if previous_module is not None and previous_module != resolved_module:
+                    ambiguous_names.add(bound_name)
+                module_aliases[bound_name] = resolved_module
         elif isinstance(node, ast.ImportFrom) and node.module:
             for item in node.names:
                 if item.name == "*":
                     continue
                 bound_name = item.asname or item.name
-                previous = function_aliases.get(bound_name)
+                previous_function = function_aliases.get(bound_name)
                 resolved = (node.module, item.name)
-                if previous is not None and previous != resolved:
+                if previous_function is not None and previous_function != resolved:
                     ambiguous_names.add(bound_name)
                 function_aliases[bound_name] = resolved
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
