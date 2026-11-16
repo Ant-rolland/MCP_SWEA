@@ -404,6 +404,7 @@ def _parse_go_mod(content: bytes) -> dict[str, Any]:
     requirements: list[dict[str, str | bool]] = []
     in_require = False
     for raw_line in content.decode("utf-8-sig").splitlines():
+        indirect_marker = "// indirect" in raw_line
         line = raw_line.split("//", 1)[0].strip()
         if not line:
             continue
@@ -421,13 +422,16 @@ def _parse_go_mod(content: bytes) -> dict[str, Any]:
         if line.startswith("require "):
             parts = line.split()
             if len(parts) >= 3:
-                requirements.append({"module": parts[1], "version": parts[2], "indirect": False})
+                requirements.append({
+                    "module": parts[1], "version": parts[2],
+                    "indirect": indirect_marker,
+                })
         elif in_require:
             parts = line.split()
             if len(parts) >= 2:
                 requirements.append({
                     "module": parts[0], "version": parts[1],
-                    "indirect": len(parts) > 2 and parts[2] == "indirect",
+                    "indirect": indirect_marker,
                 })
     edges = [
         {
