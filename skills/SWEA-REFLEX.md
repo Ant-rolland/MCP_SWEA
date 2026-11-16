@@ -20,6 +20,7 @@ SWEA Sentinel is an evidence-aware engineering governance MCP service. It helps 
 |---|---|
 | `swea_initialize_project` | Register an existing local project directory. |
 | `swea_analyze_project` | Produce or return the bounded filesystem inventory. |
+| `swea_assess_project` | Run all current bounded analyses and return consolidated findings, evidence, and risk summary. |
 | `swea_get_project_context` | Retrieve the latest inventory context and file-type summary. |
 | `swea_get_project_status` | Check registration and indexing status. |
 | `swea_refresh_project_index` | Refresh the filesystem inventory and component hashes. |
@@ -34,8 +35,8 @@ SWEA Sentinel is an evidence-aware engineering governance MCP service. It helps 
 ## Recommended analysis sequence
 
 1. Call `swea_initialize_project` with the exact local project directory supplied by the user.
-2. Call `swea_analyze_project` and `swea_get_project_context` to understand the indexed scope.
-3. Run the relevant specialist analyses:
+2. Call `swea_assess_project` for a complete pass of all currently implemented bounded analyses. Set `refresh_index=true` only when a fresh filesystem inventory is required.
+3. For targeted investigations, call `swea_analyze_project` and `swea_get_project_context`, then run the relevant specialist analyses:
    - `swea_analyze_architecture` for Python import relationships.
    - `swea_analyze_dependencies` for manifests, lockfiles, and source-to-package attribution where explicit lock metadata supports it (Python, Node.js, Go, Rust, and PHP Composer PSR-4).
    - `swea_analyze_contracts` for API/data contracts and recognized Python route declarations.
@@ -74,6 +75,7 @@ The SQLite database is created with owner-only read/write permissions on POSIX s
 - JavaScript/TypeScript source-to-package attribution recognizes only single-line literal import/export, require, and dynamic-import specifiers. The package root must exactly match one uniquely locked npm package across discovered Node lockfiles; scoped package roots are supported. Relative imports, Node builtins, aliases, multiline declarations, computed specifiers, and ambiguous locked versions remain unlinked.
 - Go source-to-module attribution recognizes literal single and grouped import declarations. A source import maps to the longest exact `go.sum` module-path prefix only when one locked module/version record is unique. `go.sum` does not establish the selected Go module graph; no transitive dependency relationships are inferred from checksum records.
 - Rust source-to-crate attribution recognizes literal `use` and `extern crate` roots. Crate identifiers map to one unique Cargo.lock package after hyphen-to-underscore normalization; multiple versions and normalized-name collisions remain unlinked.
+- PHP source-to-package attribution recognizes column-zero single-line class `use` and grouped imports, mapping only through a unique longest Composer PSR-4 namespace prefix. PSR-0, dynamic imports, and ambiguous namespace ownership remain unresolved.
 - Blast-radius relation layers are independent. Python source imports connect only to Python package edges; JavaScript/TypeScript source imports connect only to Node package edges; Go source imports connect only to Go module records; Rust source imports connect only to Cargo package records. Do not infer cross-ecosystem impact from matching names alone.
 
 ### API/data contracts
@@ -89,13 +91,13 @@ The Python code-quality checks also flag exception handlers whose only statement
 
 ### Security
 
-The analyzer also detects a narrow set of known credential formats and private-key markers in Python string literals. It deliberately does not echo matched values in findings. This is not generic secret scanning: arbitrary passwords, unknown token formats, environment files, non-Python files, and credential validity are outside its scope. Treat matches as sensitive and rotate a real credential rather than copying it into logs or tickets.
+The analyzer detects selected credential/token formats and private-key markers in Python string literals and bounded UTF-8 text/config files, including .env, YAML, JSON, TOML, properties, and supported source files. Recognized examples include AWS, GitHub, Slack, Stripe, Google, GitLab, npm, PyPI, SendGrid, OpenAI, Anthropic, and Hugging Face formats. Matched values are never echoed or persisted; only path, line, pattern category, and SHA-256 evidence are retained. This is format-specific detection, not generic password or entropy-based secret discovery; binary stores, runtime environment values, and deployed services are not inspected. Rotate a real credential rather than copying it into logs or tickets.
 
 The current Python security checks also flag obvious dynamically assembled SQL strings passed to `execute` or `executemany` when the literal prefix resembles a SQL statement. These findings are heuristic: the analyzer does not trace whether interpolated values are attacker-controlled. Prefer parameterized queries and inspect the call site and trust boundary before treating a finding as exploitable.
 
 ### Code quality
 
-The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Simple imported module/function aliases are resolved only when their names are not rebound anywhere in the file; general scope analysis and indirect wrappers are not resolved.
+The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Imported module/function aliases are resolved conservatively per lexical scope; names rebound or shadowed in that scope are excluded. This is not full Python name resolution and indirect wrappers are not resolved.
 
 The current Python checks cover only:
 - Mutable default arguments.
@@ -113,7 +115,7 @@ The current Python checks cover only:
 - `yaml.load` without an explicit SafeLoader and `yaml.unsafe_load`.
 - `pickle.load` and `pickle.loads`.
 
-The analyzer does not perform taint analysis, data-flow analysis, general lexical-scope resolution, dependency vulnerability matching, generic secret scanning, or exploitability validation. Only selected known credential formats are detected. Pickle findings are heuristic because risk depends on whether input is trusted.
+The analyzer does not perform taint analysis, data-flow analysis, generic password/entropy discovery, dependency vulnerability matching, or exploitability validation. Only selected known credential formats are detected. Pickle findings are heuristic because risk depends on whether input is trusted.
 
 ## Safety and deployment
 
