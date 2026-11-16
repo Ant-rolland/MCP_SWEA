@@ -68,7 +68,8 @@ The SQLite database is created with owner-only read/write permissions on POSIX s
 - Manifest and lockfile relationships describe declarations or lockfile edges, not proof of runtime use. Node source imports are regex-based structural observations, not a full JavaScript/TypeScript parse.
 - Python source-to-package attribution requires an exact normalized import-root/distribution-name match and one unique locked package. Import aliases are not guessed.
 - JavaScript/TypeScript source-to-package attribution recognizes only single-line literal import/export, require, and dynamic-import specifiers. The package root must exactly match one uniquely locked npm package across discovered Node lockfiles; scoped package roots are supported. Relative imports, Node builtins, aliases, multiline declarations, computed specifiers, and ambiguous locked versions remain unlinked.
-- Blast-radius relation layers are independent. Python source imports connect only to Python package edges; JavaScript/TypeScript source imports connect only to Node package edges. Do not infer cross-ecosystem impact from matching names alone.
+- Go source-to-module attribution recognizes literal single and grouped import declarations. A source import maps to the longest exact `go.sum` module-path prefix only when one locked module/version record is unique. `go.sum` does not establish the selected Go module graph; no transitive dependency relationships are inferred from checksum records.
+- Blast-radius relation layers are independent. Python source imports connect only to Python package edges; JavaScript/TypeScript source imports connect only to Node package edges; Go source imports connect only to Go module records. Do not infer cross-ecosystem impact from matching names alone.
 
 ### API/data contracts
 
