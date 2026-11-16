@@ -333,9 +333,9 @@ def test_lockfile_edges_with_ambiguous_target_versions_are_not_linked(tmp_path):
 def test_python_imports_link_only_to_unique_normalized_locked_package(tmp_path):
     project = tmp_path / "python-package-graph"
     project.mkdir()
-    (project / "main.py").write_text("import requests\\n", encoding="utf-8")
+    (project / "main.py").write_text("import requests\n", encoding="utf-8")
     (project / "pyproject.toml").write_text(
-        '[project]\\nname = "sample"\\nversion = "1.0.0"\\ndependencies = ["Requests>=2"]\\n',
+        '[project]\nname = "sample"\nversion = "1.0.0"\ndependencies = ["Requests>=2"]\n',
         encoding="utf-8",
     )
     (project / "poetry.lock").write_text(
