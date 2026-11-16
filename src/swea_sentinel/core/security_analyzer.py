@@ -17,12 +17,12 @@ IGNORED_DIRS = {
 }
 SUBPROCESS_FUNCTIONS = {"run", "call", "Popen", "check_call", "check_output"}
 SECRET_PATTERNS = (
-    re.compile(r"\\bAKIA[0-9A-Z]{16}\\b"),
-    re.compile(r"\\bgh[pousr]_[A-Za-z0-9]{30,}\\b"),
-    re.compile(r"\\bgithub_pat_[A-Za-z0-9_]{40,}\\b"),
-    re.compile(r"\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b"),
-    re.compile(r"\\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\\b"),
-    re.compile(r"\\bAIza[0-9A-Za-z_-]{35}\\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
+    re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
+    re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
 )
 
