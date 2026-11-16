@@ -546,9 +546,9 @@ def test_go_source_imports_link_to_longest_unique_go_sum_module_prefix(tmp_path)
     (project / "service.go").write_text(
         "package service\n"
         "import (\n"
-        "    base "example.com/lib/pkg"\n"
-        "    v2 "example.com/lib/v2/pkg"\n"
-        "    "fmt"\n"
+        '    base "example.com/lib/pkg"\n'
+        '    v2 "example.com/lib/v2/pkg"\n'
+        '    "fmt"\n'
         ")\n",
         encoding="utf-8",
     )
