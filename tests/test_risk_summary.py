@@ -161,6 +161,6 @@ def test_risk_summary_marks_truncated_php_source_scan_incomplete(tmp_path):
     assert "architecture" in summary.result["domains_incomplete"]
     dependency_analysis = next(
         item for item in summary.result["analyses"]
-        if item["analysis_level"] == static_dependency_manifest_discovery
+        if item["analysis_level"] == "static_dependency_manifest_discovery"
     )
     assert dependency_analysis["scan_complete"] is False
