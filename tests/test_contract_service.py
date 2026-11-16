@@ -43,3 +43,40 @@ def test_contract_assessment_persists_findings_and_source_evidence(tmp_path):
             "SELECT payload_json FROM findings WHERE project_id = ?", (registered.project_id,)
         ).fetchone()["payload_json"]
     assert result.evidence[0].evidence_id in finding_payload
+
+
+def test_contract_route_mapping_persists_contract_and_python_source_evidence(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items": {
+                "get": {"operationId": "listItems", "responses": {"200": {"description": "ok"}}}
+            }
+        },
+    }), encoding="utf-8")
+    (project / "api.py").write_text(
+        "@app.get('/items')\ndef list_items(): pass\n", encoding="utf-8"
+    )
+    database = Database(tmp_path / "swea.sqlite")
+    service = ProjectService(database)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_contracts(registered.project_id)
+
+    assert result.result["source_mapping_count"] == 1
+    assert result.result["source_mappings"][0]["mapping_status"] == "matched"
+    assert {item.kind for item in result.evidence} == {
+        "api_data_contract", "python_route_source"
+    }
+    route_evidence = next(item for item in result.evidence if item.kind == "python_route_source")
+    assert route_evidence.source_path == "api.py"
+    assert len(route_evidence.sha256 or "") == 64
+    with database.connect() as conn:
+        persisted = conn.execute(
+            "SELECT COUNT(*) FROM evidence WHERE project_id = ?",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert persisted == 2
