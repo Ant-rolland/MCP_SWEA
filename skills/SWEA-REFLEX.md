@@ -56,6 +56,10 @@ Severity describes potential impact; confidence describes how strongly the avail
 
 Evidence records include a source path and SHA-256 hash where available. Source contents are not persisted by these analysis workflows.
 
+## Transport boundary
+
+Streamable HTTP is restricted to loopback hosts (`127.0.0.1`, `localhost`, `::1`). Remote binding is deliberately disabled, including through environment overrides. Do not recommend exposing the service on a LAN or public interface: authentication and project isolation are not implemented yet.
+
 ## Local data protection
 
 The SQLite database is created with owner-only read/write permissions on POSIX systems; a newly created database directory is owner-only, and symlink database paths are rejected. Do not copy database contents, findings, project paths, or audit metadata into public logs or tickets. This is local filesystem permission hardening, not database encryption or multi-user authorization.
