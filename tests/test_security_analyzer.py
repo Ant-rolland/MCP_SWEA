@@ -76,3 +76,24 @@ def test_detects_explicit_tls_certificate_verification_disabling(tmp_path):
         "PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
         "PYTHON_TLS_UNVERIFIED_SSL_CONTEXT",
     }
+
+
+def test_detects_obvious_dynamic_sql_but_not_parameterized_queries(tmp_path):
+    (tmp_path / "database.py").write_text(
+        "cursor.execute(f'SELECT * FROM users WHERE id = {user_id}')\n"
+        "cursor.execute('UPDATE users SET name = ' + user_name)\n"
+        "cursor.execute('DELETE FROM users WHERE id = {}'.format(user_id))\n"
+        "cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))\n"
+        "cursor.execute(query)\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_DYNAMIC_SQL_QUERY"
+    ]
+    assert len(findings) == 3
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HEURISTIC" for item in findings)
