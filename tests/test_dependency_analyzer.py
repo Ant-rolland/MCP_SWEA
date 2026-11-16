@@ -270,3 +270,35 @@ def test_parses_go_sum_versions_without_inventing_edges(tmp_path):
     assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
         ('example.com/lib', 'v1.2.3'), ('example.com/other', 'v2.0.0')}
     assert lock['locked_dependency_edges'] == []
+
+
+def test_parses_go_mod_module_requirements_as_declared_edges(tmp_path):
+    (tmp_path / "go.mod").write_text(
+        """module example.com/service
+
+go 1.23
+
+require (
+    example.com/lib v1.2.3
+    example.com/indirect v0.8.0 // indirect
+)
+require example.com/another v2.1.0
+""",
+        encoding="utf-8",
+    )
+    report = analyze_dependency_manifests(tmp_path)
+    manifest = report["manifests"][0]
+
+    assert manifest["module_path"] == "example.com/service"
+    assert manifest["declared_dependency_names"] == [
+        "example.com/another", "example.com/indirect", "example.com/lib"
+    ]
+    assert manifest["declared_dependency_edge_count"] == 3
+    assert {
+        (edge["source"], edge["target"], edge["requested_version"], edge["indirect"])
+        for edge in manifest["declared_dependency_edges"]
+    } == {
+        ("example.com/service", "example.com/lib", "v1.2.3", False),
+        ("example.com/service", "example.com/indirect", "v0.8.0", True),
+        ("example.com/service", "example.com/another", "v2.1.0", False),
+    }
