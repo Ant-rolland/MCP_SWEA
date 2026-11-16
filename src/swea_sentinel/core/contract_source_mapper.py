@@ -462,6 +462,7 @@ def discover_python_routes(
     """Find explicit literal Python route decorators and registration calls without execution."""
     started = time.monotonic()
     routes: list[dict[str, Any]] = []
+    parsed_files: list[tuple[str, ast.Module, str]] = []
     parse_errors: list[dict[str, str]] = []
     files_scanned = 0
     bytes_scanned = 0
@@ -511,19 +512,27 @@ def discover_python_routes(
                 continue
 
             relative = path.relative_to(root).as_posix()
-            router_prefixes = _router_prefixes(tree)
-            for node in ast.walk(tree):
-                discovered: list[dict[str, Any]] = []
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    discovered.extend(_decorator_routes(node, router_prefixes))
-                elif isinstance(node, ast.Call):
-                    discovered.extend(_registration_routes(node, router_prefixes))
-                for route in discovered:
-                    route["source_path"] = relative
-                    route["sha256"] = digest
-                    routes.append(route)
+            parsed_files.append((relative, tree, digest))
         if truncated_reason:
             break
+
+    cross_module_prefixes = _cross_module_router_prefixes(
+        [(relative, tree) for relative, tree, _digest in parsed_files]
+    )
+    for relative, tree, digest in parsed_files:
+        router_prefixes = _router_prefixes(tree)
+        for router_name, prefixes in cross_module_prefixes.get(relative, {}).items():
+            router_prefixes[router_name] = prefixes
+        for node in ast.walk(tree):
+            discovered: list[dict[str, Any]] = []
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                discovered.extend(_decorator_routes(node, router_prefixes))
+            elif isinstance(node, ast.Call):
+                discovered.extend(_registration_routes(node, router_prefixes))
+            for route in discovered:
+                route["source_path"] = relative
+                route["sha256"] = digest
+                routes.append(route)
 
     unique = {
         (
@@ -542,7 +551,7 @@ def discover_python_routes(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Only literal route paths and statically literal HTTP methods in Python decorators or add_api_route/add_url_rule/add_route registration calls are recognized.",
-            "Dynamic route expressions or methods, dynamic router prefixes, cross-module router mounts, and non-Python routes are not resolved. Literal APIRouter prefixes and include_router prefixes are composed only within one Python file.",
+            "Dynamic route expressions or methods, dynamic router prefixes, transitive cross-module mounts, and non-Python routes are not resolved. Literal APIRouter prefixes and same-file mounts are composed; one-level imported router mounts are composed only when the import, router name, and prefix are statically unique and literal.",
             "Route declarations are structural evidence, not proof that a route is registered or reachable at runtime.",
             "Project code is parsed as syntax only; it is never imported or executed.",
         ],
