@@ -488,7 +488,7 @@ def _cross_module_router_prefixes(
 
             target = external.setdefault(child_path, {})
             if mount_prefix is None or parent_prefixes is None:
-                if target.get(child_name) is not None:
+                if child_name not in target or target[child_name] is not None:
                     target[child_name] = None
                     changed = True
                 continue
