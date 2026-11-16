@@ -404,13 +404,59 @@ class _SecurityVisitor(ast.NodeVisitor):
             ),
         )
 
+    def _check_contextual_secret(
+        self, node: ast.AST, targets: list[ast.expr], value: ast.expr
+    ) -> None:
+        names = {
+            name
+            for target in targets
+            for name in self._assignment_names(target)
+        }
+        credential_names = {
+            "api_key", "apikey", "access_token", "accesstoken",
+            "client_secret", "clientsecret", "secret_key", "secretkey",
+        }
+        if not names.intersection(credential_names):
+            return
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            return
+        candidate = value.value
+        if len(candidate) < 24 or any(
+            pattern.search(candidate) for pattern in SECRET_PATTERNS
+        ):
+            return
+        character_classes = sum((
+            any(char.islower() for char in candidate),
+            any(char.isupper() for char in candidate),
+            any(char.isdigit() for char in candidate),
+            any(char in "_./+=-" for char in candidate),
+        ))
+        if character_classes < 3:
+            return
+        self._add(
+            code="PYTHON_HARDCODED_CREDENTIAL",
+            severity="high",
+            confidence="MEDIUM_CONFIDENCE",
+            node=node,
+            message=(
+                "A long mixed-character value is assigned to a credential-named "
+                "variable; the value is intentionally redacted."
+            ),
+            recommendation=(
+                "Verify whether the value is a live credential; if so, remove it "
+                "from source, rotate it, and use a secret manager or protected environment."
+            ),
+        )
+
     def visit_Assign(self, node: ast.Assign) -> None:
         self._check_contextual_aws_secret(node, node.targets, node.value)
+        self._check_contextual_secret(node, node.targets, node.value)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self._check_contextual_aws_secret(node, [node.target], node.value)
+            self._check_contextual_secret(node, [node.target], node.value)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
