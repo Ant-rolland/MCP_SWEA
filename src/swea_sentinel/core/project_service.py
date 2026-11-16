@@ -416,7 +416,14 @@ class ProjectService:
                 for dependency in item["declared_dependency_names"]
             ]
             for item in report["manifests"]:
-                if item["ecosystem"] != "node" or item["kind"] != "lockfile":
+                for edge in item.get("declared_dependency_edges", []):
+                    dependency_rows.append((
+                        str(uuid4()), project_id,
+                        f"{item['path']}#{edge['source']}",
+                        f"{edge['target']}@{edge.get('requested_version', 'unspecified')}",
+                        f"manifest:{item['ecosystem']}:edge",
+                    ))
+                if item["kind"] != "lockfile":
                     continue
                 lockfile_path = item["path"]
                 lock_name = Path(lockfile_path).name
@@ -426,7 +433,8 @@ class ProjectService:
                     "python" if lock_name in {"poetry.lock", "Pipfile.lock"} else
                     "cargo" if lock_name == "Cargo.lock" else
                     "go" if lock_name == "go.sum" else
-                    "npm"
+                    "npm" if item["ecosystem"] == "node" else
+                    item["ecosystem"]
                 )
                 for package in item.get("locked_packages", []):
                     install_path = package["install_path"]
