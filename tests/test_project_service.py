@@ -731,7 +731,7 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
         }, {
             "name": "psr/log",
             "version": "3.0.0",
-            "autoload": {"psr-4": {"Psr\\\\Log\\\\": "src/"}},
+            "autoload": {"psr-4": {"Psr\\Log\\": "src/"}},
         }],
         "packages-dev": [],
     }), encoding="utf-8")
@@ -752,9 +752,16 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
             "WHERE project_id = ? AND dependency_type = 'php_package_graph'",
             (registered.project_id,),
         ).fetchall()
-    assert [(row["source_path"], row["target_name"]) for row in rows] == [
+    assert {
+        (row["source_path"], row["target_name"])
+        for row in rows
+    } == {
         ("app.php", "composer.lock#package:vendor/library@2.1.0"),
-    ]
+        (
+            "composer.lock#package:vendor/library@2.1.0",
+            "composer.lock#package:psr/log@3.0.0",
+        ),
+    }
 
     impact = service.check_blast_radius(
         registered.project_id, "composer.lock#package:psr/log@3.0.0"
