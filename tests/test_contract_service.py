@@ -145,3 +145,30 @@ def test_contract_mapping_uses_composed_fastapi_router_prefixes(tmp_path):
     assert mapping["mapping_status"] == "matched"
     assert mapping["path"] == "/api/v1/items"
     assert mapping["sources"][0]["source_path"] == "api.py"
+
+
+def test_contract_mapping_recognizes_literal_flask_url_rule_registration(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/legacy/items": {
+                "post": {"responses": {"201": {"description": "created"}}}
+            }
+        },
+    }), encoding="utf-8")
+    (project / "routes.py").write_text(
+        "app.add_url_rule('/legacy/items', view_func=create_item, methods=['POST'])\n",
+        encoding="utf-8",
+    )
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    result = service.analyze_contracts(registered.project_id)
+
+    mapping = result.result["source_mappings"][0]
+    assert mapping["mapping_status"] == "matched"
+    assert mapping["sources"][0]["function"] == "create_item"
+    assert mapping["sources"][0]["source_path"] == "routes.py"
