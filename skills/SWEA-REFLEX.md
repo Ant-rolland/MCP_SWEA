@@ -76,6 +76,8 @@ Evidence records include a source path and SHA-256 hash where available. Source 
 
 ### Security
 
+The analyzer also detects a narrow set of known credential formats and private-key markers in Python string literals. It deliberately does not echo matched values in findings. This is not generic secret scanning: arbitrary passwords, unknown token formats, environment files, non-Python files, and credential validity are outside its scope. Treat matches as sensitive and rotate a real credential rather than copying it into logs or tickets.
+
 The current Python security checks also flag obvious dynamically assembled SQL strings passed to `execute` or `executemany` when the literal prefix resembles a SQL statement. These findings are heuristic: the analyzer does not trace whether interpolated values are attacker-controlled. Prefer parameterized queries and inspect the call site and trust boundary before treating a finding as exploitable.
 
 ### Code quality
