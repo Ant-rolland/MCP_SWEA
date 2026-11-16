@@ -214,3 +214,15 @@ def test_parses_yarn_berry_lockfile_packages_and_edges(tmp_path):
     assert lock['locked_dependency_edges'] == [{
         'source': 'left-pad', 'target': 'right-pad',
         'source_install_path': '"left-pad@npm:^1.0.0"'}]
+
+
+
+def test_parses_yarn_classic_lockfile_dependencies(tmp_path):
+    (tmp_path / 'yarn.lock').write_text('''left-pad@^1.0.0:\n  version "1.3.0"\n  resolved "https://example.invalid/left-pad.tgz"\n  dependencies:\n    right-pad "^2.0.0"\n\nright-pad@^2.0.0:\n  version "2.1.0"\n''', encoding='utf-8')
+    report = analyze_dependency_manifests(tmp_path)
+    lock = report['manifests'][0]
+    assert lock['lockfile_version'] == 'classic'
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('left-pad', '1.3.0'), ('right-pad', '2.1.0')}
+    assert lock['locked_dependency_edges'] == [{
+        'source': 'left-pad', 'target': 'right-pad', 'source_install_path': 'left-pad@^1.0.0'}]
