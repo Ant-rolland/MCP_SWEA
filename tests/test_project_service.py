@@ -675,6 +675,7 @@ def test_rust_source_imports_link_to_normalized_cargo_crates_and_blast_radius(tm
         item["identifier"] for item in rust_impact["transitive_dependents"]
     } == {
         "Cargo.lock#package:app@0.1.0",
+        "Cargo.lock#package:serde@1.0.210",
         "main.rs",
     }
 
