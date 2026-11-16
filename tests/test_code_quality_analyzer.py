@@ -38,3 +38,22 @@ def test_quality_scan_is_bounded_and_reports_parse_errors(tmp_path):
     assert report["truncated"] is True
     assert report["truncated_reason"] == "maximum_file_count"
     assert report["finding_count"] == 0
+
+
+def test_detects_exception_handlers_that_silently_discard_errors(tmp_path):
+    (tmp_path / "sample.py").write_text(
+        "try:\n    work()\nexcept OSError:\n    pass\n"
+        "try:\n    work()\nexcept Exception:\n    ...\n"
+        "try:\n    work()\nexcept ValueError:\n    recover()\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_code_quality(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_SWALLOWED_EXCEPTION"
+    ]
+    assert len(findings) == 2
+    assert all(item["severity"] == "medium" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
