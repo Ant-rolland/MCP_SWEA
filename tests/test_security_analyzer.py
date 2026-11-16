@@ -182,3 +182,31 @@ def test_does_not_apply_import_alias_after_rebinding(tmp_path):
         item["code"] == "PYTHON_SUBPROCESS_SHELL_TRUE"
         for item in report["findings"]
     )
+
+
+def test_security_aliases_are_resolved_per_function_scope(tmp_path):
+    (tmp_path / "scopes.py").write_text(
+        "import subprocess as sp\n"
+        "def shadowed():\n"
+        "    sp = fake_module\n"
+        "    sp.run(command, shell=True)\n"
+        "def uses_global_alias():\n"
+        "    sp.run(command, shell=True)\n"
+        "def local_import():\n"
+        "    import subprocess as local_sp\n"
+        "    local_sp.run(command, shell=True)\n"
+        "class Example:\n"
+        "    import subprocess as class_sp\n"
+        "    def method(self):\n"
+        "        class_sp.run(command, shell=True)\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_SUBPROCESS_SHELL_TRUE"
+    ]
+    assert len(findings) == 2
+    assert [item["line"] for item in findings] == [7, 10]
