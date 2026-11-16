@@ -48,10 +48,10 @@ def _join_paths(*parts: str) -> str:
 
 
 def _router_prefixes(tree: ast.Module) -> dict[str, list[str] | None]:
-    """Resolve literal APIRouter prefixes and literal include_router mounts per file."""
+    """Resolve literal APIRouter prefixes and nested same-file mounts."""
     router_bases: dict[str, str | None] = {}
-    mounts: dict[str, list[str]] = {}
-    invalid_mounts: set[str] = set()
+    mounts_by_parent: dict[str | None, list[tuple[str, str | None]]] = {}
+    invalid_routers: set[str] = set()
 
     for statement in tree.body:
         targets: list[ast.expr] = []
@@ -80,32 +80,79 @@ def _router_prefixes(tree: ast.Module) -> dict[str, list[str] | None]:
                 router_bases[target.id] = prefix
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        if (
+            not isinstance(node, ast.Call)
+            or not isinstance(node.func, ast.Attribute)
+            or node.func.attr != "include_router"
+            or not node.args
+        ):
             continue
-        if node.func.attr != "include_router" or not node.args:
+        child = node.args[0]
+        if not isinstance(child, ast.Name) or child.id not in router_bases:
             continue
-        router_arg = node.args[0]
-        if not isinstance(router_arg, ast.Name) or router_arg.id not in router_bases:
-            continue
+        parent = (
+            node.func.value.id
+            if isinstance(node.func.value, ast.Name)
+            and node.func.value.id in router_bases
+            else None
+        )
         prefix_node = next(
             (item.value for item in node.keywords if item.arg == "prefix"), None
         )
         mount_prefix = "" if prefix_node is None else _literal_path(prefix_node)
         if mount_prefix is None:
-            invalid_mounts.add(router_arg.id)
-            continue
-        mounts.setdefault(router_arg.id, []).append(mount_prefix)
+            invalid_routers.add(child.id)
+        mounts_by_parent.setdefault(parent, []).append((child.id, mount_prefix))
 
-    resolved: dict[str, list[str] | None] = {}
-    for name, base_prefix in router_bases.items():
-        if base_prefix is None or name in invalid_mounts:
-            resolved[name] = None
+    resolved_sets: dict[str, set[str]] = {}
+    mounted_as_child = {
+        child
+        for mounts in mounts_by_parent.values()
+        for child, _prefix in mounts
+    }
+
+    def resolve(
+        name: str, inherited_prefix: str, active: tuple[str, ...]
+    ) -> None:
+        if name in active:
+            cycle_start = active.index(name)
+            invalid_routers.update(active[cycle_start:])
+            return
+        base_prefix = router_bases.get(name)
+        if base_prefix is None or name in invalid_routers:
+            invalid_routers.add(name)
+            return
+        effective_prefix = _join_paths(inherited_prefix, base_prefix)
+        resolved_sets.setdefault(name, set()).add(effective_prefix)
+        next_active = (*active, name)
+        for child_name, mount_prefix in mounts_by_parent.get(name, []):
+            if mount_prefix is None:
+                invalid_routers.add(child_name)
+                continue
+            resolve(child_name, _join_paths(effective_prefix, mount_prefix), next_active)
+
+    for child_name, mount_prefix in mounts_by_parent.get(None, []):
+        if mount_prefix is None:
+            invalid_routers.add(child_name)
             continue
-        mount_prefixes = mounts.get(name, [""])
-        resolved[name] = sorted({
-            _join_paths(mount, base_prefix) for mount in mount_prefixes
-        })
-    return resolved
+        resolve(child_name, mount_prefix, ())
+
+    # A router not mounted by another router is a root in this file. This also
+    # supports factories where the final app mount is outside the scanned file.
+    for name in router_bases:
+        if name not in mounted_as_child and name not in resolved_sets:
+            resolve(name, "", ())
+
+    return {
+        name: None if name in invalid_routers else sorted(prefixes)
+        for name, prefixes in resolved_sets.items()
+    } | {
+        name: None
+        for name in invalid_routers
+        if name not in resolved_sets
+    }
+
+
 
 
 def _decorator_routes(
