@@ -205,8 +205,8 @@ def test_dependency_analysis_persists_python_and_cargo_lockfiles(tmp_path):
             (registered.project_id,),
         ).fetchall()
     stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows}
-    assert ("poetry.lock#httpx@0.27.2", "httpx@0.27.2", "lockfile:python:package") in stored
-    assert ("Cargo.lock#serde@1.0.210", "serde@1.0.210", "lockfile:cargo:package") in stored
+    assert ("poetry.lock#package:httpx@0.27.2", "poetry.lock#package:httpx@0.27.2", "lockfile:python:package") in stored
+    assert ("Cargo.lock#package:serde@1.0.210", "Cargo.lock#package:serde@1.0.210", "lockfile:cargo:package") in stored
 
 
 
