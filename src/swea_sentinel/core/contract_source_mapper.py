@@ -84,6 +84,7 @@ def discover_python_routes(
     """Find only explicit, literal route decorators; never import or execute project code."""
     started = time.monotonic()
     routes: list[dict[str, Any]] = []
+    parse_errors: list[dict[str, str]] = []
     files_scanned = 0
     bytes_scanned = 0
     truncated_reason: str | None = None
@@ -121,7 +122,14 @@ def discover_python_routes(
                 files_scanned += 1
                 digest = hashlib.sha256(raw).hexdigest()
                 tree = ast.parse(raw, filename=path.relative_to(root).as_posix())
-            except (OSError, UnicodeError, SyntaxError):
+            except SyntaxError as exc:
+                parse_errors.append({
+                    "path": path.relative_to(root).as_posix(),
+                    "error": "SyntaxError",
+                    "line": str(exc.lineno or 0),
+                })
+                continue
+            except (OSError, UnicodeError):
                 continue
 
             relative = path.relative_to(root).as_posix()
@@ -143,6 +151,7 @@ def discover_python_routes(
     }
     return {
         "routes": [unique[key] for key in sorted(unique)],
+        "parse_errors": parse_errors,
         "files_scanned": files_scanned,
         "bytes_scanned": bytes_scanned,
         "truncated": truncated_reason is not None,
