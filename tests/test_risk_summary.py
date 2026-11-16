@@ -1,0 +1,59 @@
+from swea_sentinel.config import ProjectIndexSettings
+from swea_sentinel.core.project_service import ProjectService
+from swea_sentinel.persistence.database import Database
+
+
+def test_risk_summary_uses_only_latest_assessment_per_domain(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    source = project / "app.py"
+    source.write_text("def bad(items=[]): pass\n", encoding="utf-8")
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    first = service.analyze_code_quality(registered.project_id)
+    assert len(first.findings) == 1
+    source.write_text("def good(items=None): pass\n", encoding="utf-8")
+    service.analyze_code_quality(registered.project_id)
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "completed"
+    assert summary.result["domains_assessed"] == 1
+    assert summary.result["overall"]["open_finding_count"] == 0
+    assert summary.result["domains"][0]["domain"] == "code_quality"
+    assert summary.result["domains"][0]["scan_complete"] is True
+    assert summary.findings == []
+    assert summary.evidence == []
+
+
+def test_risk_summary_marks_truncated_domain_as_incomplete(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    (project / "b.py").write_text("def b(): pass\n", encoding="utf-8")
+    service = ProjectService(
+        Database(tmp_path / "swea.sqlite"),
+        ProjectIndexSettings(max_files=1),
+    )
+    registered = service.initialize(str(project))
+    service.analyze_code_quality(registered.project_id)
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "partial"
+    assert summary.result["domains_incomplete"] == ["code_quality"]
+    assert summary.result["domains"][0]["scan_complete"] is False
+
+
+def test_risk_summary_without_assessments_is_explicitly_partial(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "partial"
+    assert summary.result["domains_assessed"] == 0
+    assert summary.result["overall"]["open_finding_count"] == 0
