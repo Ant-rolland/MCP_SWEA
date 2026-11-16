@@ -297,7 +297,6 @@ def _cross_module_router_prefixes(
 
     module_paths: dict[str, list[str]] = {}
     local_prefixes: dict[str, dict[str, list[str] | None]] = {}
-    trees = {path: tree for path, tree in parsed_files}
 
     for path, tree in parsed_files:
         module_name = module_name_for_path(path)
