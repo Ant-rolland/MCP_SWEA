@@ -776,6 +776,10 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
         "composer.lock#package:vendor/library@2.1.0",
         "app.php",
     }
+    assert any(
+        item.kind == "php_source_imports" and item.source_path == "app.php"
+        for item in impact.evidence
+    )
 
 
 def test_php_source_import_attribution_skips_ambiguous_psr4_prefixes(tmp_path):
