@@ -25,6 +25,8 @@ CONTEXTUAL_SECRET_PATTERNS = (
 SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+    re.compile(r"\bdop_v1_[a-f0-9]{64}\b"),
+    re.compile(r"\bxapp-1-[0-9A-Z-]{20,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
     re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
     re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b"),
@@ -36,7 +38,9 @@ SECRET_PATTERNS = (
     re.compile(r"\bsk-proj-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bsk-ant-api\d{2}-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+    re.compile(
+        r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"
+    ),
 )
 
 
