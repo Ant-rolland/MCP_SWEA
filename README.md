@@ -53,6 +53,7 @@ Default database: `~/.swea-sentinel/sentinel.db`. Override with `SWEA_DB_PATH` o
 ## Verification
 
 ```bash
+ruff check src tests
 pytest
 python -m compileall -q src tests
 swea-sentinel --help
