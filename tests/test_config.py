@@ -1,3 +1,5 @@
+from pydantic import ValidationError
+
 from swea_sentinel.config import load_settings
 
 
@@ -28,6 +30,6 @@ def test_configuration_rejects_remote_http_binding(tmp_path):
     )
     try:
         load_settings(config)
-    except Exception:
+    except ValidationError:
         return
     raise AssertionError("Remote binding must remain disabled in P1")
