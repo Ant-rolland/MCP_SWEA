@@ -18,7 +18,7 @@ IGNORED_DIRS = {
 SUBPROCESS_FUNCTIONS = {"run", "call", "Popen", "check_call", "check_output"}
 CONTEXTUAL_SECRET_PATTERNS = (
     re.compile(
-        r"""(?im)\\b(?:aws_secret_access_key|aws_secret_key)\\b["']?\\s*[:=]\\s*["']?([A-Za-z0-9/+=]{40})["']?"""
+        r"""(?im)\b(?:aws_secret_access_key|aws_secret_key)\b["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})["']?"""
     ),
 )
 
