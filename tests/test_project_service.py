@@ -96,7 +96,7 @@ def test_dependency_analysis_persists_manifest_edges_and_evidence(tmp_path):
 
     result = service.analyze_dependencies(registered.project_id)
 
-    assert result.status.value == "completed"
+    assert result.status.value == "partial"
     assert result.result["manifest_count"] == 2
     with db.connect() as conn:
         edges = conn.execute(
@@ -357,7 +357,7 @@ version = "2.2.3"
 
     result = service.analyze_dependencies(registered.project_id)
 
-    assert result.status.value == "completed"
+    assert result.status.value == "partial"
     with database.connect() as conn:
         edges = conn.execute(
             "SELECT source_path, target_name, dependency_type FROM dependencies "
@@ -831,12 +831,14 @@ def test_assess_project_runs_current_analyses_and_returns_consolidated_summary(t
 
     result = service.assess_project(registered.project_id)
 
-    assert result.status.value == "completed"
+    assert result.status.value == "partial"
     assert result.result["analysis_level"] == "orchestrated_project_assessment"
     assert set(result.result["analyses"]) == {
         "architecture", "dependencies", "contracts", "code_quality", "security",
     }
     assert result.result["risk_summary"]["domains_assessed"] == 4
+    assert result.result["coverage_complete"] is False
+    assert len(result.result["domains_not_assessed"]) == 8
     assert result.result["total_findings"] == len(result.findings)
     assert result.result["total_evidence"] == len(result.evidence)
 
@@ -851,4 +853,4 @@ def test_assess_project_can_refresh_before_running_analyses(tmp_path):
     result = service.assess_project(registered.project_id, refresh_index=True)
 
     assert result.result["refresh"]["status"] == "completed"
-    assert result.status.value == "completed"
+    assert result.status.value == "partial"
