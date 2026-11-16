@@ -146,3 +146,64 @@ def test_dependency_analysis_persists_npm_locked_packages_and_edges(tmp_path):
         ("package-lock.json#node_modules/react-dom", "react-dom@19.0.0", "lockfile:npm:package"),
         ("package-lock.json#node_modules/react-dom", "react", "lockfile:npm:edge"),
     }
+
+
+
+def test_dependency_analysis_persists_go_declarations_and_non_node_lockfiles(tmp_path):
+    project = tmp_path / "go-project"
+    project.mkdir()
+    (project / "go.mod").write_text(
+        "module example.com/service\n\ngo 1.23\n\n"
+        "require (\n example.com/lib v1.2.3\n example.com/helper v0.8.0 // indirect\n)\n",
+        encoding="utf-8",
+    )
+    (project / "go.sum").write_text(
+        "example.com/lib v1.2.3 h1:abc=\n"
+        "example.com/helper v0.8.0/go.mod h1:def=\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["manifest_count"] == 2
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? ORDER BY dependency_type, source_path, target_name",
+            (registered.project_id,),
+        ).fetchall()
+    stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows}
+    assert ("go.mod#example.com/service", "example.com/lib@v1.2.3", "manifest:go:edge") in stored
+    assert ("go.mod#example.com/service", "example.com/helper@v0.8.0", "manifest:go:edge") in stored
+    assert ("go.sum#example.com/lib@v1.2.3", "example.com/lib@v1.2.3", "lockfile:go:package") in stored
+    assert ("go.sum#example.com/helper@v0.8.0", "example.com/helper@v0.8.0", "lockfile:go:package") in stored
+
+
+def test_dependency_analysis_persists_python_and_cargo_lockfiles(tmp_path):
+    project = tmp_path / "multi-ecosystem"
+    project.mkdir()
+    (project / "poetry.lock").write_text(
+        '[[package]]\nname = "httpx"\nversion = "0.27.2"\n', encoding="utf-8"
+    )
+    (project / "Cargo.lock").write_text(
+        'version = 3\n\n[[package]]\nname = "serde"\nversion = "1.0.210"\n',
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    service.analyze_dependencies(registered.project_id)
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ?",
+            (registered.project_id,),
+        ).fetchall()
+    stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows}
+    assert ("poetry.lock#httpx@0.27.2", "httpx@0.27.2", "lockfile:python:package") in stored
+    assert ("Cargo.lock#serde@1.0.210", "serde@1.0.210", "lockfile:cargo:package") in stored
