@@ -352,12 +352,12 @@ def test_parses_composer_lock_packages_requirements_and_psr4_namespaces(tmp_path
             "name": "vendor/library",
             "version": "2.1.0",
             "require": {"psr/log": "^3", "php": "^8.1"},
-            "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+            "autoload": {"psr-4": {"Vendor\\Library\\": "src/"}},
         }],
         "packages-dev": [{
             "name": "vendor/test-tools",
             "version": "1.0.0",
-            "autoload": {"psr-4": {"Vendor\\\\Tests\\\\": ["src/", "tests/"]}},
+            "autoload": {"psr-4": {"Vendor\\Tests\\": ["src/", "tests/"]}},
         }],
     }), encoding="utf-8")
 
@@ -378,6 +378,6 @@ def test_parses_composer_lock_packages_requirements_and_psr4_namespaces(tmp_path
         (item["prefix"], item["package"], item["version"])
         for item in lock["locked_php_namespaces"]
     } == {
-        ("Vendor\\\\Library", "vendor/library", "2.1.0"),
-        ("Vendor\\\\Tests", "vendor/test-tools", "1.0.0"),
+        ("Vendor\\Library", "vendor/library", "2.1.0"),
+        ("Vendor\\Tests", "vendor/test-tools", "1.0.0"),
     }
