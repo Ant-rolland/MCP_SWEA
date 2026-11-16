@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from collections import deque
 from pathlib import PurePosixPath
@@ -402,6 +403,7 @@ class ProjectService:
 
         _, root = self._project(project_id)
         report = analyze_dependency_manifests(root, self.index_settings)
+        python_import_report = analyze_python_imports(root, self.index_settings)
         assessment_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         evidence = [
@@ -492,12 +494,47 @@ class ProjectService:
                     # identifies one locked version. Ambiguous versions stay unlinked.
                     if len(candidates) != 1:
                         continue
+                    relation_type = (
+                        "python_package_graph"
+                        if lockfile_format == "python"
+                        else f"lockfile:{lockfile_format}:edge"
+                    )
                     dependency_rows.append((
                         str(uuid4()), project_id,
                         package_node(source_package),
                         package_node(candidates[0]),
-                        f"lockfile:{lockfile_format}:edge",
+                        relation_type,
                     ))
+
+            # Link source imports to a Python package only when the normalized
+            # import root exactly matches one uniquely locked distribution name.
+            # Import aliases (for example PIL -> Pillow) are deliberately not guessed.
+            def normalize_python_name(value: str) -> str:
+                return re.sub(r"[-_.]+", "-", value).lower()
+
+            locked_python_packages: list[tuple[str, str, str]] = []
+            for manifest_item in report["manifests"]:
+                if manifest_item["ecosystem"] != "python" or manifest_item["kind"] != "lockfile":
+                    continue
+                lock_path = manifest_item["path"]
+                for package in manifest_item.get("locked_packages", []):
+                    locked_python_packages.append((
+                        normalize_python_name(package["name"]),
+                        lock_path,
+                        f"{lock_path}#package:{package['name']}@{package['version']}",
+                    ))
+            for import_edge in python_import_report.get("external_import_edges", []):
+                candidates = [
+                    package for package in locked_python_packages
+                    if package[0] == normalize_python_name(import_edge["import_root"])
+                ]
+                if len(candidates) != 1:
+                    continue
+                dependency_rows.append((
+                    str(uuid4()), project_id,
+                    import_edge["source"], candidates[0][2],
+                    "python_package_graph",
+                ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
