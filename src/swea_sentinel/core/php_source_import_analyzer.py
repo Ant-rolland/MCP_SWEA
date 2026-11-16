@@ -18,7 +18,7 @@ SINGLE_USE = re.compile(
     r"""^use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*(?:\s+as\s+[A-Za-z_]\w*)?)\s*;"""
 )
 GROUP_USE = re.compile(
-    r"""^\s*use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*)\\\{([^}]+)\}\s*;"""
+    r"""^use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*)\\\{([^}]+)\}\s*;"""
 )
 
 
