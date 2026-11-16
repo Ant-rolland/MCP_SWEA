@@ -15,7 +15,7 @@ IGNORED_DIRS = {
     ".mypy_cache", ".pytest_cache", "build", "dist", "coverage",
 }
 SINGLE_USE = re.compile(
-    r"""^use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*(?:\s+as\s+[A-Za-z_]\w*)?)\s*;"""
+    r"""^(?:<\?php\s*)?use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*(?:\s+as\s+[A-Za-z_]\w*)?)\s*;"""
 )
 GROUP_USE = re.compile(
     r"""^use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*)\\\{([^}]+)\}\s*;"""
