@@ -43,6 +43,14 @@ def _keyword(node: ast.Call, name: str) -> ast.expr | None:
     return next((item.value for item in node.keywords if item.arg == name), None)
 
 
+def _call_label(node: ast.expr) -> str:
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return "call"
+
+
 def _literal_true(node: ast.expr | None) -> bool:
     return isinstance(node, ast.Constant) and node.value is True
 
@@ -292,7 +300,7 @@ class _SecurityVisitor(ast.NodeVisitor):
                 severity="high",
                 confidence="HIGH_CONFIDENCE",
                 node=node,
-                message=f"subprocess.{function.attr} is called with shell=True.",
+                message=f"subprocess.{_call_label(function)} is called with shell=True.",
                 recommendation=(
                     "Pass an argument sequence with shell=False; validate arguments "
                     "and enforce timeouts and output limits."
@@ -343,15 +351,14 @@ class _SecurityVisitor(ast.NodeVisitor):
                 and function.id in self.function_aliases
                 and self.function_aliases[function.id][0] in {"requests", "httpx"}
             )
-        ) and _literal_false(_keyword(node, "verify"))
-        ):
+        ) and _literal_false(_keyword(node, "verify")):
             self._add(
                 code="PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
                 severity="high",
                 confidence="HIGH_CONFIDENCE",
                 node=node,
                 message=(
-                    f"{function.value.id}.{function.attr} is called with verify=False, "
+                    f"{_call_label(function)} is called with verify=False, "
                     "disabling TLS certificate verification."
                 ),
                 recommendation=(
@@ -491,7 +498,8 @@ def analyze_python_security(
             except (OSError, UnicodeError, ValueError):
                 continue
 
-            visitor = _SecurityVisitor(relative)
+            module_aliases, function_aliases = _collect_import_aliases(tree)
+            visitor = _SecurityVisitor(relative, module_aliases, function_aliases)
             visitor.visit(tree)
             findings.extend(visitor.findings)
         if truncated_reason:
