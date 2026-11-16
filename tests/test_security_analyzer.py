@@ -246,10 +246,10 @@ def test_detects_additional_developer_credential_formats_without_echoing_values(
 def test_detects_context_labelled_aws_secret_access_keys_without_echoing_values(tmp_path):
     aws_secret = "A" * 40
     (tmp_path / "aws_credentials.py").write_text(
-        f'AWS_SECRET_ACCESS_KEY = "{aws_secret}"\\n'
-        f'config.aws_secret_key: str = "{aws_secret}"\\n'
-        f'random_value = "{aws_secret}"\\n'
-        'AWS_SECRET_ACCESS_KEY = "too-short"\\n',
+        f'AWS_SECRET_ACCESS_KEY = "{aws_secret}"\n'
+        f'config.aws_secret_key: str = "{aws_secret}"\n'
+        f'random_value = "{aws_secret}"\n'
+        'AWS_SECRET_ACCESS_KEY = "too-short"\n',
         encoding="utf-8",
     )
 
