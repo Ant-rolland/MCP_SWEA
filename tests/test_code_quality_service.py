@@ -35,5 +35,5 @@ def test_code_quality_assessment_persists_findings_and_source_evidence(tmp_path)
             (registered.project_id,),
         ).fetchone()[0]
     assert assessment["domain"] == "code_quality"
-    assert findings == 2
+    assert findings == 3
     assert evidence == 1
