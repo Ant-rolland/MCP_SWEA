@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import json
+import os
 import re
 import time
 import tomllib
@@ -122,7 +122,7 @@ def _parse_npm_lockfile(content: bytes) -> dict[str, Any]:
     """Read npm lockfile v1-v3 package/version metadata and direct lockfile edges."""
     data = json.loads(content.decode("utf-8-sig"))
     if not isinstance(data, dict):
-        raise ValueError("npm lockfile root must be an object")
+        raise TypeError("npm lockfile root must be an object")
     lock_version = data.get("lockfileVersion", 1)
     if not isinstance(lock_version, int) or lock_version not in {1, 2, 3}:
         raise ValueError("unsupported npm lockfile version")
@@ -202,14 +202,14 @@ def _parse_pnpm_lockfile(content: bytes) -> dict[str, Any]:
     import yaml
     data = yaml.safe_load(content.decode("utf-8-sig"))
     if not isinstance(data, dict):
-        raise ValueError("pnpm lockfile root must be a mapping")
+        raise TypeError("pnpm lockfile root must be a mapping")
     lock_version = str(data.get("lockfileVersion", ""))
     if not re.match(r"^[0-9]+(?:\.[0-9]+)?$", lock_version):
         raise ValueError("unsupported pnpm lockfile version")
     package_map = data.get("packages", {})
     snapshots = data.get("snapshots", {})
     if not isinstance(package_map, dict) or not isinstance(snapshots, dict):
-        raise ValueError("pnpm package and snapshot sections must be mappings")
+        raise TypeError("pnpm package and snapshot sections must be mappings")
     records: dict[str, dict[str, str]] = {}
     for key, metadata in package_map.items():
         parsed = _pnpm_package_name_version(str(key))
@@ -301,7 +301,7 @@ def _parse_yarn_lockfile(content: bytes) -> dict[str, Any]:
         return _parse_yarn_classic_lockfile(text)
     data = yaml.safe_load(text)
     if not isinstance(data, dict):
-        raise ValueError('Yarn lockfile root must be a mapping')
+        raise TypeError('Yarn lockfile root must be a mapping')
     metadata = data.get('__metadata', {})
     version = str(metadata.get('version', 'classic')) if isinstance(metadata, dict) else 'classic'
     packages: list[dict[str, str]] = []
@@ -376,7 +376,7 @@ def _parse_cargo_lockfile(content: bytes) -> dict[str, Any]:
     data = tomllib.loads(content.decode('utf-8-sig'))
     records = data.get('package', [])
     if not isinstance(records, list):
-        raise ValueError('Cargo package section must be an array')
+        raise TypeError('Cargo package section must be an array')
     packages: list[dict[str, str]] = []
     edges: list[dict[str, str]] = []
     for record in records:
