@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from swea_sentinel.config import Settings, load_settings
 from swea_sentinel.core.project_service import ProjectService
 from swea_sentinel.models import (
-    ProjectImpactInput, ProjectInitializeInput, ProjectReferenceInput, ProjectRefreshInput,
+    ProjectImpactInput,
+    ProjectInitializeInput,
+    ProjectReferenceInput,
+    ProjectRefreshInput,
 )
 from swea_sentinel.persistence.database import Database
 
@@ -43,7 +47,7 @@ def _audit_tool(database: Database, tool_name: str) -> Callable[..., Any]:
                         execution_id, str(project_id) if project_id else None,
                         f"mcp.tool.{tool_name}", "failure", details,
                     )
-                except Exception as audit_error:
+                except Exception as audit_error:  # noqa: BLE001 - preserve the original tool failure
                     exc.add_note(f"Audit persistence also failed: {type(audit_error).__name__}")
                 raise
 
