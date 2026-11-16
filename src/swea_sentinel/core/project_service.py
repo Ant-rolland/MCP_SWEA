@@ -580,6 +580,25 @@ class ProjectService:
             for item in report["contracts"]
         }
         evidence = list(evidence_by_path.values())
+        route_evidence_by_path: dict[str, Evidence] = {}
+        for mapping in report.get("source_mappings", []):
+            for source in mapping.get("sources", []):
+                source_path = source.get("source_path")
+                source_hash = source.get("sha256")
+                if (
+                    isinstance(source_path, str)
+                    and isinstance(source_hash, str)
+                    and source_path not in route_evidence_by_path
+                ):
+                    route_evidence_by_path[source_path] = Evidence(
+                        kind="python_route_source",
+                        description="Python source file containing an exact static HTTP route declaration",
+                        origin=DataOrigin.VERIFIED_SOURCE,
+                        qualification=QualificationStatus.QUALIFIED,
+                        source_path=source_path,
+                        sha256=source_hash,
+                    )
+        evidence.extend(route_evidence_by_path.values())
         findings: list[Finding] = []
         for item in report["findings"]:
             evidence_item = evidence_by_path.get(item["path"])
