@@ -556,6 +556,8 @@ def analyze_dependency_manifests(
                 try:
                     if kind == "manifest":
                         dependencies = _dependency_names(path, ecosystem, content)
+                        if ecosystem == "go" and path.name == "go.mod":
+                            lockfile_details = _parse_go_mod(content)
                     elif ecosystem == "node" and path.name in {"package-lock.json", "npm-shrinkwrap.json"}:
                         lockfile_details = _parse_npm_lockfile(content)
                     elif ecosystem == "node" and path.name == "pnpm-lock.yaml":
