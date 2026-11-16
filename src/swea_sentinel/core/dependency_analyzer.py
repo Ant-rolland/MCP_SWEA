@@ -243,6 +243,37 @@ def _parse_pnpm_lockfile(content: bytes) -> dict[str, Any]:
             "locked_dependency_edge_count": len(edges)}
 
 
+def _parse_yarn_lockfile(content: bytes) -> dict[str, Any]:
+    import yaml
+    data = yaml.safe_load(content.decode('utf-8-sig'))
+    if not isinstance(data, dict):
+        raise ValueError('Yarn lockfile root must be a mapping')
+    metadata = data.get('__metadata', {})
+    version = str(metadata.get('version', 'classic')) if isinstance(metadata, dict) else 'classic'
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    for descriptor, record in sorted(data.items()):
+        if descriptor == '__metadata' or not isinstance(record, dict):
+            continue
+        value = str(descriptor).strip(chr(34)).strip(chr(39))
+        if value.startswith('@'):
+            slash = value.find('/')
+            marker = value.find('@', slash + 1) if slash >= 0 else -1
+        else:
+            marker = value.find('@')
+        name = value[:marker] if marker > 0 else None
+        locked_version = record.get('version')
+        if not name or not isinstance(locked_version, str):
+            continue
+        packages.append({'name': name, 'version': locked_version, 'install_path': str(descriptor)})
+        for section in ('dependencies', 'optionalDependencies'):
+            deps = record.get(section, {})
+            if isinstance(deps, dict):
+                for target in sorted(deps):
+                    edges.append({'source': name, 'target': str(target), 'source_install_path': str(descriptor)})
+    return {'lockfile_version': version, 'locked_packages': packages, 'locked_package_count': len(packages), 'locked_dependency_edges': edges, 'locked_dependency_edge_count': len(edges)}
+
+
 def _classify(name: str) -> tuple[str, str] | None:
     if name == "package.json":
         return "node", "manifest"
@@ -335,6 +366,8 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_npm_lockfile(content)
                     elif ecosystem == "node" and path.name == "pnpm-lock.yaml":
                         lockfile_details = _parse_pnpm_lockfile(content)
+                    elif ecosystem == "node" and path.name == "yarn.lock":
+                        lockfile_details = _parse_yarn_lockfile(content)
                     if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
@@ -376,7 +409,7 @@ def analyze_dependency_manifests(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Discovery is static and does not install packages, invoke package managers, or execute project code.",
-            "npm package-lock v1-v3 and pnpm lockfiles expose bounded locked package versions and dependency edges; other lockfiles are identified and hashed but not expanded.",
+            "npm package-lock v1-v3, pnpm, and Yarn Berry lockfiles expose bounded locked package versions and dependency edges; other lockfiles are identified and hashed but not expanded.",
             "Gradle and Maven manifests are identified but dependency declarations are not yet parsed.",
             "Declared dependency names do not establish versions, reachability, vulnerability status, or runtime usage.",
             "Only the listed manifest formats are recognized; custom build systems may be missed.",
