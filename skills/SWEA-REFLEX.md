@@ -41,7 +41,7 @@ SWEA Sentinel is an evidence-aware engineering governance MCP service. It helps 
    - `swea_analyze_contracts` for API/data contracts and recognized Python route declarations.
    - `swea_analyze_code_quality` for the currently implemented code-quality rules.
    - `swea_analyze_security` for the currently implemented security-sensitive API rules.
-4. Call `swea_get_risk_summary` to review the latest findings and scan completeness by domain. This summarizes only the latest assessment per domain, and explicitly lists domains without an assessment; it is not a calibrated risk score.
+4. Call `swea_get_risk_summary` to review the latest findings and scan completeness by domain. This summarizes only the latest assessment per domain, and explicitly lists domains without an assessment and marks truncated Node, Go, or Rust source scans as incomplete; it is not a calibrated risk score.
 5. Use `swea_check_blast_radius` only with an identifier present in a persisted graph. The result reports impact separately by relation type; do not join unrelated ecosystems.
 6. If files changed or a fresh snapshot is needed, call `swea_refresh_project_index` before relying on the inventory.
 
