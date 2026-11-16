@@ -164,3 +164,25 @@ def test_risk_summary_marks_truncated_php_source_scan_incomplete(tmp_path):
         if item["analysis_level"] == "static_dependency_manifest_discovery"
     )
     assert dependency_analysis["scan_complete"] is False
+
+
+def test_risk_summary_marks_truncated_text_secret_scan_incomplete(tmp_path):
+    project = tmp_path / "secret-scan"
+    project.mkdir()
+    (project / ".env").write_text(
+        "TOKEN=glpat-" + "A" * 24 + "\n", encoding="utf-8"
+    )
+    (project / "settings.yaml").write_text(
+        "token: npm_" + "B" * 36 + "\n", encoding="utf-8"
+    )
+    service = ProjectService(
+        Database(tmp_path / "swea.sqlite"),
+        ProjectIndexSettings(max_files=1),
+    )
+    registered = service.initialize(str(project))
+
+    service.analyze_security(registered.project_id)
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "partial"
+    assert "security" in summary.result["domains_incomplete"]
