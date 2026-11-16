@@ -37,6 +37,10 @@ def _literal_true(node: ast.expr | None) -> bool:
     return isinstance(node, ast.Constant) and node.value is True
 
 
+def _literal_false(node: ast.expr | None) -> bool:
+    return isinstance(node, ast.Constant) and node.value is False
+
+
 def _safe_yaml_loader(node: ast.expr | None) -> bool:
     return (
         isinstance(node, ast.Attribute)
@@ -132,6 +136,38 @@ class _SecurityVisitor(ast.NodeVisitor):
                 node=node,
                 message="yaml.load is used without an explicit SafeLoader.",
                 recommendation="Use yaml.safe_load or pass yaml.SafeLoader explicitly.",
+            )
+        elif (
+            isinstance(function, ast.Attribute)
+            and isinstance(function.value, ast.Name)
+            and function.value.id in {"requests", "httpx"}
+            and _literal_false(_keyword(node, "verify"))
+        ):
+            self._add(
+                code="PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
+                severity="high",
+                confidence="HIGH_CONFIDENCE",
+                node=node,
+                message=(
+                    f"{function.value.id}.{function.attr} is called with verify=False, "
+                    "disabling TLS certificate verification."
+                ),
+                recommendation=(
+                    "Keep certificate verification enabled; configure a trusted CA "
+                    "bundle instead of disabling TLS verification."
+                ),
+            )
+        elif _is_attribute(function, "ssl", "_create_unverified_context"):
+            self._add(
+                code="PYTHON_TLS_UNVERIFIED_SSL_CONTEXT",
+                severity="high",
+                confidence="HIGH_CONFIDENCE",
+                node=node,
+                message="ssl._create_unverified_context disables TLS certificate verification.",
+                recommendation=(
+                    "Use ssl.create_default_context with certificate verification "
+                    "enabled and a trusted CA configuration."
+                ),
             )
         elif (
             isinstance(function, ast.Attribute)
@@ -233,7 +269,7 @@ def analyze_python_security(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "file_hashes": file_hashes,
         "limitations": [
-            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, and pickle deserialization.",
+            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, and explicit TLS certificate-verification disabling.",
             "The analyzer does not perform taint analysis, data-flow analysis, import alias resolution, or prove that arguments are attacker-controlled.",
             "pickle findings are heuristic because exploitability depends on the trust boundary of the input.",
             "The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
