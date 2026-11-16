@@ -252,3 +252,21 @@ def test_parses_pipfile_lock_packages_and_edges(tmp_path):
         ('requests', '2.32.3'), ('urllib3', '2.2.3'), ('pytest', '8.3.3')}
     assert lock['locked_dependency_edges'] == [{
         'source': 'requests', 'target': 'urllib3', 'source_install_path': 'requests@2.32.3'}]
+
+
+
+def test_parses_cargo_lockfile_packages_and_edges(tmp_path):
+    (tmp_path / 'Cargo.lock').write_text('''version = 3\n\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = ["serde 1.0.210", "tokio 1.40.0"]\n\n[[package]]\nname = "serde"\nversion = "1.0.210"\n\n[[package]]\nname = "tokio"\nversion = "1.40.0"\n''', encoding='utf-8')
+    lock = analyze_dependency_manifests(tmp_path)['manifests'][0]
+    assert lock['lockfile_version'] == '3'
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('app', '0.1.0'), ('serde', '1.0.210'), ('tokio', '1.40.0')}
+    assert {item['target'] for item in lock['locked_dependency_edges']} == {'serde', 'tokio'}
+
+
+def test_parses_go_sum_versions_without_inventing_edges(tmp_path):
+    (tmp_path / 'go.sum').write_text('''example.com/lib v1.2.3 h1:abc=\nexample.com/lib v1.2.3/go.mod h1:def=\nexample.com/other v2.0.0/go.mod h1:ghi=\n''', encoding='utf-8')
+    lock = analyze_dependency_manifests(tmp_path)['manifests'][0]
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('example.com/lib', 'v1.2.3'), ('example.com/other', 'v2.0.0')}
+    assert lock['locked_dependency_edges'] == []
