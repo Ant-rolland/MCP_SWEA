@@ -572,6 +572,144 @@ class ProjectService:
             duration_ms=int(report["duration_ms"]),
         )
 
+    def get_risk_summary(self, project_id: str) -> ToolResult:
+        """Summarize open findings from the latest assessment in each domain."""
+        started = time.monotonic()
+        self._project(project_id)
+        with self.db.connect() as conn:
+            assessment_rows = conn.execute(
+                "SELECT assessment_id, domain, status, created_at, payload_json "
+                "FROM assessments WHERE project_id = ? "
+                "ORDER BY created_at DESC, assessment_id DESC",
+                (project_id,),
+            ).fetchall()
+            finding_rows = conn.execute(
+                "SELECT assessment_id, payload_json FROM findings "
+                "WHERE project_id = ? AND status = 'open'",
+                (project_id,),
+            ).fetchall()
+            evidence_rows = conn.execute(
+                "SELECT payload_json FROM evidence WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+
+        latest_by_domain: dict[str, Any] = {}
+        for row in assessment_rows:
+            latest_by_domain.setdefault(row["domain"], row)
+        latest_assessment_ids = {
+            row["assessment_id"] for row in latest_by_domain.values()
+        }
+        findings: list[Finding] = []
+        for row in finding_rows:
+            if row["assessment_id"] not in latest_assessment_ids:
+                continue
+            try:
+                findings.append(Finding.model_validate_json(row["payload_json"]))
+            except ValueError:
+                continue
+        findings.sort(key=lambda item: (
+            item.domain.value, item.severity.value, item.code, item.location or ""
+        ))
+
+        severity_counts = {item.value: 0 for item in Severity}
+        confidence_counts = {item.value: 0 for item in Confidence}
+        domain_counts: dict[str, dict[str, Any]] = {}
+        for finding in findings:
+            severity_counts[finding.severity.value] += 1
+            confidence_counts[finding.confidence.value] += 1
+            counts = domain_counts.setdefault(
+                finding.domain.value,
+                {
+                    "finding_count": 0,
+                    "severity_counts": {item.value: 0 for item in Severity},
+                    "confidence_counts": {item.value: 0 for item in Confidence},
+                },
+            )
+            counts["finding_count"] += 1
+            counts["severity_counts"][finding.severity.value] += 1
+            counts["confidence_counts"][finding.confidence.value] += 1
+
+        domains: list[dict[str, Any]] = []
+        incomplete_domains: list[str] = []
+        for domain, row in sorted(latest_by_domain.items()):
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                payload = {}
+            route_scan = payload.get("route_scan", {})
+            scan_complete = not (
+                payload.get("truncated", False)
+                or payload.get("parse_errors")
+                or (
+                    isinstance(route_scan, dict)
+                    and route_scan.get("parse_errors")
+                )
+                or row["status"] == ExecutionStatus.FAILED.value
+            )
+            if not scan_complete:
+                incomplete_domains.append(domain)
+            counts = domain_counts.get(
+                domain,
+                {
+                    "finding_count": 0,
+                    "severity_counts": {item.value: 0 for item in Severity},
+                    "confidence_counts": {item.value: 0 for item in Confidence},
+                },
+            )
+            domains.append({
+                "domain": domain,
+                "assessment_id": row["assessment_id"],
+                "assessment_status": row["status"],
+                "created_at": row["created_at"],
+                "scan_complete": scan_complete,
+                **counts,
+            })
+
+        evidence_ids = {
+            evidence_id
+            for finding in findings
+            for evidence_id in finding.evidence_ids
+        }
+        evidence: list[Evidence] = []
+        for row in evidence_rows:
+            try:
+                item = Evidence.model_validate_json(row["payload_json"])
+            except ValueError:
+                continue
+            if item.evidence_id in evidence_ids:
+                evidence.append(item)
+        evidence.sort(key=lambda item: item.source_path or "")
+
+        status = (
+            ExecutionStatus.PARTIAL
+            if not latest_by_domain or incomplete_domains
+            else ExecutionStatus.COMPLETED
+        )
+        return ToolResult(
+            project_id=project_id,
+            status=status,
+            result={
+                "analysis_level": "latest_domain_risk_summary",
+                "domains_assessed": len(domains),
+                "domains_incomplete": incomplete_domains,
+                "overall": {
+                    "open_finding_count": len(findings),
+                    "severity_counts": severity_counts,
+                    "confidence_counts": confidence_counts,
+                },
+                "domains": domains,
+            },
+            findings=findings,
+            evidence=evidence,
+            limitations=[
+                "The summary includes only the latest assessment per domain; historical assessments are not aggregated.",
+                "Counts are descriptive, not a calibrated risk score or proof of exploitability.",
+                "A finding may be structurally valid while runtime impact remains unknown; inspect its confidence and evidence.",
+                "Domains without a recorded assessment are not treated as assessed.",
+            ],
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+        )
+
     def analyze_security(self, project_id: str) -> ToolResult:
         """Run bounded, read-only Python security pattern checks and persist evidence."""
         from swea_sentinel.core.security_analyzer import analyze_python_security
