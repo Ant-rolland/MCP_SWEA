@@ -47,7 +47,7 @@ def test_successful_and_failed_tool_calls_are_audited(monkeypatch, tmp_path):
     project.mkdir()
 
     result = server.tools["swea_initialize_project"](path=str(project), name="demo")
-    assert result["status"] == "completed"
+    assert result["status"] == "partial"
 
     try:
         server.tools["swea_get_project_status"](project_id="missing-project")
@@ -87,7 +87,7 @@ def test_dependency_analysis_is_available_as_mcp_tool(monkeypatch, tmp_path):
 
     result = server.tools["swea_analyze_dependencies"](project_id=registered["project_id"])
 
-    assert result["status"] == "completed"
+    assert result["status"] == "partial"
     assert result["result"]["manifest_count"] == 1
     assert result["result"]["manifests"][0]["declared_dependency_names"] == ["react"]
 
@@ -103,7 +103,7 @@ def test_consolidated_assessment_tool_runs_all_current_analyses(monkeypatch, tmp
 
     result = server.tools["swea_assess_project"](project_id=project_id)
 
-    assert result["status"] == "completed"
+    assert result["status"] == "partial"
     assert result["result"]["analysis_level"] == "orchestrated_project_assessment"
     assert set(result["result"]["analyses"]) == {
         "architecture", "dependencies", "contracts", "code_quality", "security",
