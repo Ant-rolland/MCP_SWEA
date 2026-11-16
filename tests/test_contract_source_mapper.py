@@ -194,3 +194,77 @@ def test_cross_module_router_mount_with_dynamic_prefix_is_not_mapped(tmp_path):
         and route["source_path"] == "app/routers/users.py"
         for route in report["routes"]
     )
+
+def test_maps_routes_through_multi_module_router_mount_chain(tmp_path):
+    app = tmp_path / "app"
+    routers = app / "routers"
+    nested = routers / "nested"
+    nested.mkdir(parents=True)
+    (app / "main.py").write_text(
+        "from fastapi import FastAPI\n"
+        "from .routers.root import router as root_router\n"
+        "app = FastAPI()\n"
+        "app.include_router(root_router, prefix='/api')\n",
+        encoding="utf-8",
+    )
+    (routers / "root.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from .nested.users import router as users_router\n"
+        "router = APIRouter(prefix='/v1')\n"
+        "router.include_router(users_router, prefix='/accounts')\n",
+        encoding="utf-8",
+    )
+    (nested / "users.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter(prefix='/users')\n"
+        "@router.get('/{user_id}')\n"
+        "def get_user(user_id: str):\n"
+        "    return {'id': user_id}\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    assert any(
+        route["method"] == "GET"
+        and route["path"] == "/api/v1/accounts/users/{user_id}"
+        and route["source_path"] == "app/routers/nested/users.py"
+        for route in report["routes"]
+    )
+
+
+def test_does_not_guess_multi_module_router_chain_with_dynamic_parent_prefix(tmp_path):
+    app = tmp_path / "app"
+    routers = app / "routers"
+    nested = routers / "nested"
+    nested.mkdir(parents=True)
+    (app / "main.py").write_text(
+        "from fastapi import FastAPI\n"
+        "from .routers.root import router as root_router\n"
+        "app = FastAPI()\n"
+        "app.include_router(root_router, prefix='/api')\n",
+        encoding="utf-8",
+    )
+    (routers / "root.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from .nested.users import router as users_router\n"
+        "router = APIRouter(prefix='/v1')\n"
+        "router.include_router(users_router, prefix=runtime_prefix)\n",
+        encoding="utf-8",
+    )
+    (nested / "users.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter(prefix='/users')\n"
+        "@router.get('/')\n"
+        "def list_users():\n"
+        "    return []\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    assert not any(
+        route["source_path"] == "app/routers/nested/users.py"
+        for route in report["routes"]
+    )
+
