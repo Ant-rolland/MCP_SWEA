@@ -419,20 +419,21 @@ class ProjectService:
                 if item["ecosystem"] != "node" or item["kind"] != "lockfile":
                     continue
                 lockfile_path = item["path"]
+                lockfile_format = "pnpm" if Path(lockfile_path).name == "pnpm-lock.yaml" else "npm"
                 for package in item.get("locked_packages", []):
                     install_path = package["install_path"]
                     dependency_rows.append((
                         str(uuid4()), project_id,
                         f"{lockfile_path}#{install_path}",
                         f"{package['name']}@{package['version']}",
-                        "lockfile:npm:package",
+                        f"lockfile:{lockfile_format}:package",
                     ))
                 for edge in item.get("locked_dependency_edges", []):
                     dependency_rows.append((
                         str(uuid4()), project_id,
                         f"{lockfile_path}#{edge['source_install_path']}",
                         edge["target"],
-                        "lockfile:npm:edge",
+                        f"lockfile:{lockfile_format}:edge",
                     ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
