@@ -412,12 +412,11 @@ class ProjectService:
     def analyze_dependencies(self, project_id: str) -> ToolResult:
         """Discover and persist bounded dependency manifests without resolving packages."""
         from swea_sentinel.core.dependency_analyzer import analyze_dependency_manifests
+        from swea_sentinel.core.node_source_import_analyzer import analyze_node_source_imports
 
         _, root = self._project(project_id)
         report = analyze_dependency_manifests(root, self.index_settings)
         python_import_report = analyze_python_imports(root, self.index_settings)
-        from swea_sentinel.core.node_source_import_analyzer import analyze_node_source_imports
-
         node_import_report = analyze_node_source_imports(root, self.index_settings)
         report["node_source_imports"] = node_import_report
         report["limitations"] = [
