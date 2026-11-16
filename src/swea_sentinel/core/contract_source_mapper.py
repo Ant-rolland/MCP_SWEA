@@ -308,7 +308,7 @@ def _cross_module_router_prefixes(
     }
     external: dict[str, dict[str, list[str] | None]] = {}
     pending_mounts: list[
-        tuple[tuple[str, str], tuple[str, str], str | None]
+        tuple[tuple[str, str], tuple[str, str], str | None, bool]
     ] = []
 
     def import_base(module_name: str, path: str, node: ast.ImportFrom) -> str | None:
@@ -434,7 +434,7 @@ def _cross_module_router_prefixes(
             )
             if parent is not None:
                 pending_mounts.append(
-                    (parent, (child_path, child_name), mount_prefix)
+                    (parent, (child_path, child_name), mount_prefix, parent[0] == path)
                 )
                 continue
             parent_prefixes: list[str] | None = [""]
@@ -470,10 +470,10 @@ def _cross_module_router_prefixes(
         if not unresolved:
             break
         remaining: list[
-            tuple[tuple[str, str], tuple[str, str], str | None]
+            tuple[tuple[str, str], tuple[str, str], str | None, bool]
         ] = []
         changed = False
-        for parent, child, mount_prefix in unresolved:
+        for parent, child, mount_prefix, parent_is_local in unresolved:
             parent_path, parent_name = parent
             child_path, child_name = child
             parent_mapping = external.get(parent_path, {})
@@ -481,8 +481,8 @@ def _cross_module_router_prefixes(
                 parent_prefixes = parent_mapping[parent_name]
             else:
                 local_parent_mapping = local_prefixes.get(parent_path, {})
-                if parent_name not in local_parent_mapping:
-                    remaining.append((parent, child, mount_prefix))
+                if not parent_is_local or parent_name not in local_parent_mapping:
+                    remaining.append((parent, child, mount_prefix, parent_is_local))
                     continue
                 parent_prefixes = local_parent_mapping[parent_name]
 
@@ -520,7 +520,7 @@ def _cross_module_router_prefixes(
 
     # An imported-parent edge whose parent cannot be resolved is intentionally
     # marked unresolved, rather than falling back to a guessed local prefix.
-    for _parent, child, _mount_prefix in unresolved:
+    for _parent, child, _mount_prefix, _parent_is_local in unresolved:
         child_path, child_name = child
         external.setdefault(child_path, {})[child_name] = None
 
