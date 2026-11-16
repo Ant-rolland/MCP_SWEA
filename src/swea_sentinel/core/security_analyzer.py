@@ -42,7 +42,7 @@ def _safe_yaml_loader(node: ast.expr | None) -> bool:
         isinstance(node, ast.Attribute)
         and node.attr in {"SafeLoader", "CSafeLoader"}
         and _is_name(node.value, "yaml")
-    ) or _is_name(node, "SafeLoader")
+    ) or _is_name(node, "SafeLoader") or _is_name(node, "CSafeLoader")
 
 
 class _SecurityVisitor(ast.NodeVisitor):
