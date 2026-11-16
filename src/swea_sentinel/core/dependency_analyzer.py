@@ -398,20 +398,70 @@ def _parse_cargo_lockfile(content: bytes) -> dict[str, Any]:
             'locked_dependency_edge_count': len(edges)}
 
 
+def _parse_go_mod(content: bytes) -> dict[str, Any]:
+    """Parse Go module requirements as declarations, not as a resolved lock graph."""
+    module_path: str | None = None
+    requirements: list[dict[str, str | bool]] = []
+    in_require = False
+    for raw_line in content.decode("utf-8-sig").splitlines():
+        line = raw_line.split("//", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("module "):
+            parts = line.split()
+            if len(parts) >= 2:
+                module_path = parts[1]
+            continue
+        if line == "require (":
+            in_require = True
+            continue
+        if in_require and line == ")":
+            in_require = False
+            continue
+        if line.startswith("require "):
+            parts = line.split()
+            if len(parts) >= 3:
+                requirements.append({"module": parts[1], "version": parts[2], "indirect": False})
+        elif in_require:
+            parts = line.split()
+            if len(parts) >= 2:
+                requirements.append({
+                    "module": parts[0], "version": parts[1],
+                    "indirect": len(parts) > 2 and parts[2] == "indirect",
+                })
+    edges = [
+        {
+            "source": module_path or "go.mod",
+            "target": str(item["module"]),
+            "requested_version": str(item["version"]),
+            "indirect": bool(item["indirect"]),
+            "source_manifest": "go.mod",
+        }
+        for item in requirements
+    ]
+    return {
+        "module_path": module_path,
+        "declared_dependency_edges": edges,
+        "declared_dependency_edge_count": len(edges),
+    }
+
+
 def _parse_go_sum(content: bytes) -> dict[str, Any]:
     packages: dict[tuple[str, str], dict[str, str]] = {}
-    for line in content.decode('utf-8-sig').splitlines():
+    for line in content.decode("utf-8-sig").splitlines():
         parts = line.split()
-        if len(parts) < 2 or parts[0].startswith('//'):
+        if len(parts) < 2 or parts[0].startswith("//"):
             continue
         module, version = parts[0], parts[1]
-        if version.endswith('/go.mod'):
+        if version.endswith("/go.mod"):
             version = version[:-7]
-        packages[(module, version)] = {'name': module, 'version': version, 'install_path': module + '@' + version}
+        packages[(module, version)] = {
+            "name": module, "version": version, "install_path": module + "@" + version
+        }
     records = [packages[key] for key in sorted(packages)]
-    return {'lockfile_version': 'go.sum', 'locked_packages': records,
-            'locked_package_count': len(records), 'locked_dependency_edges': [],
-            'locked_dependency_edge_count': 0}
+    return {"lockfile_version": "go.sum", "locked_packages": records,
+            "locked_package_count": len(records), "locked_dependency_edges": [],
+            "locked_dependency_edge_count": 0}
 
 
 def _classify(name: str) -> tuple[str, str] | None:
@@ -512,16 +562,25 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_python_lockfile(path, content)
                     elif ecosystem == "rust" and path.name == "Cargo.lock":
                         lockfile_details = _parse_cargo_lockfile(content)
+                    elif ecosystem == "go" and path.name == "go.mod":
+                        lockfile_details = _parse_go_mod(content)
                     elif ecosystem == "go" and path.name == "go.sum":
                         lockfile_details = _parse_go_sum(content)
                     if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
-                        lockfile_truncated = (len(packages) > MAX_LOCKED_PACKAGES or len(edges) > MAX_LOCKED_EDGES)
+                        declared_edges = lockfile_details.get("declared_dependency_edges", [])
+                        lockfile_truncated = (
+                            len(packages) > MAX_LOCKED_PACKAGES
+                            or len(edges) > MAX_LOCKED_EDGES
+                            or len(declared_edges) > MAX_LOCKED_EDGES
+                        )
                         lockfile_details["locked_packages"] = packages[:MAX_LOCKED_PACKAGES]
                         lockfile_details["locked_dependency_edges"] = edges[:MAX_LOCKED_EDGES]
+                        lockfile_details["declared_dependency_edges"] = declared_edges[:MAX_LOCKED_EDGES]
                         lockfile_details["locked_package_count"] = len(lockfile_details["locked_packages"])
                         lockfile_details["locked_dependency_edge_count"] = len(lockfile_details["locked_dependency_edges"])
+                        lockfile_details["declared_dependency_edge_count"] = len(lockfile_details["declared_dependency_edges"])
                         lockfile_details["lockfile_truncated"] = lockfile_truncated
                 except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError, RecursionError):
                     parse_error = "invalid_manifest" if kind == "manifest" else "invalid_lockfile"
