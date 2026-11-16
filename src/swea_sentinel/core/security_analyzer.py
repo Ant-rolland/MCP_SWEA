@@ -416,7 +416,14 @@ class _SecurityVisitor(ast.NodeVisitor):
             "api_key", "apikey", "access_token", "accesstoken",
             "client_secret", "clientsecret", "secret_key", "secretkey",
         }
-        if not names.intersection(credential_names):
+        if not any(
+            name in credential_names
+            or name.endswith((
+                "_api_key", "_apikey", "_access_token", "_accesstoken",
+                "_client_secret", "_secret_key",
+            ))
+            for name in names
+        ):
             return
         if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
             return
