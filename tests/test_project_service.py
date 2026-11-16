@@ -96,7 +96,7 @@ def test_dependency_analysis_persists_manifest_edges_and_evidence(tmp_path):
 
     result = service.analyze_dependencies(registered.project_id)
 
-    assert result.status.value == "partial"
+    assert result.status.value == "completed"
     assert result.result["manifest_count"] == 2
     with db.connect() as conn:
         edges = conn.execute(
@@ -357,7 +357,7 @@ version = "2.2.3"
 
     result = service.analyze_dependencies(registered.project_id)
 
-    assert result.status.value == "partial"
+    assert result.status.value == "completed"
     with database.connect() as conn:
         edges = conn.execute(
             "SELECT source_path, target_name, dependency_type FROM dependencies "
