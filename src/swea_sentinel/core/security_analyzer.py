@@ -101,47 +101,86 @@ def _dynamic_sql_query(node: ast.expr) -> bool:
     )
 
 
-def _collect_import_aliases(
-    tree: ast.Module,
+def _collect_scope_import_aliases(
+    scope: ast.AST,
+    inherited: tuple[dict[str, str], dict[str, tuple[str, str]]],
 ) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
-    """Resolve simple import aliases only when their local names are not rebound."""
-    module_aliases: dict[str, str] = {}
-    function_aliases: dict[str, tuple[str, str]] = {}
+    """Resolve imports in one lexical scope without leaking local bindings outward."""
+    module_aliases = dict(inherited[0])
+    function_aliases = dict(inherited[1])
     ambiguous_names: set[str] = set()
     rebound_names: set[str] = set()
+    scope_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for item in node.names:
-                bound_name = item.asname or item.name.split(".")[0]
-                resolved_module = (
-                    item.name if item.asname else item.name.split(".")[0]
-                )
-                previous_module = module_aliases.get(bound_name)
-                if previous_module is not None and previous_module != resolved_module:
-                    ambiguous_names.add(bound_name)
-                module_aliases[bound_name] = resolved_module
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            for item in node.names:
-                if item.name == "*":
-                    continue
-                bound_name = item.asname or item.name
-                previous_function = function_aliases.get(bound_name)
-                resolved = (node.module, item.name)
-                if previous_function is not None and previous_function != resolved:
-                    ambiguous_names.add(bound_name)
-                function_aliases[bound_name] = resolved
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            rebound_names.add(node.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            rebound_names.add(node.name)
-        elif isinstance(node, ast.arg):
-            rebound_names.add(node.arg)
+    def visit_current_scope(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, scope_types):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    rebound_names.add(child.name)
+                continue
+            if isinstance(child, ast.Import):
+                for item in child.names:
+                    bound_name = item.asname or item.name.split(".")[0]
+                    resolved_module = (
+                        item.name if item.asname else item.name.split(".")[0]
+                    )
+                    previous = module_aliases.get(bound_name)
+                    if previous is not None and previous != resolved_module:
+                        ambiguous_names.add(bound_name)
+                    module_aliases[bound_name] = resolved_module
+            elif isinstance(child, ast.ImportFrom) and child.module:
+                for item in child.names:
+                    if item.name == "*":
+                        continue
+                    bound_name = item.asname or item.name
+                    resolved = (child.module, item.name)
+                    previous = function_aliases.get(bound_name)
+                    if previous is not None and previous != resolved:
+                        ambiguous_names.add(bound_name)
+                    function_aliases[bound_name] = resolved
+            elif isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                rebound_names.add(child.id)
+            elif isinstance(child, ast.arg):
+                rebound_names.add(child.arg)
+            elif isinstance(child, (ast.Global, ast.Nonlocal)):
+                rebound_names.update(child.names)
+            visit_current_scope(child)
 
+    visit_current_scope(scope)
     for name in ambiguous_names | rebound_names:
         module_aliases.pop(name, None)
         function_aliases.pop(name, None)
     return module_aliases, function_aliases
+
+
+def _collect_import_aliases(
+    tree: ast.Module,
+) -> dict[int, tuple[dict[str, str], dict[str, tuple[str, str]]]]:
+    """Build conservative import aliases per lexical scope, including nested functions."""
+    scopes: dict[int, tuple[dict[str, str], dict[str, tuple[str, str]]]] = {}
+    scope_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+    def build_scope(
+        scope: ast.AST,
+        inherited: tuple[dict[str, str], dict[str, tuple[str, str]]],
+    ) -> None:
+        current = _collect_scope_import_aliases(scope, inherited)
+        scopes[id(scope)] = current
+        # Python class namespaces are not lexical parents of methods. A method
+        # resolves names through the enclosing lexical scope, not class locals.
+        child_parent = inherited if isinstance(scope, ast.ClassDef) else current
+
+        def find_nested(node: ast.AST) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, scope_types):
+                    build_scope(child, child_parent)
+                else:
+                    find_nested(child)
+
+        find_nested(scope)
+
+    build_scope(tree, ({}, {}))
+    return scopes
 
 
 def _resolved_attribute(
@@ -194,13 +233,66 @@ class _SecurityVisitor(ast.NodeVisitor):
     def __init__(
         self,
         path: str,
-        module_aliases: dict[str, str],
-        function_aliases: dict[str, tuple[str, str]],
+        scope_aliases: dict[
+            int, tuple[dict[str, str], dict[str, tuple[str, str]]]
+        ],
+        root_scope: ast.Module,
     ) -> None:
         self.path = path
-        self.module_aliases = module_aliases
-        self.function_aliases = function_aliases
+        self.scope_aliases = scope_aliases
+        self.module_aliases, self.function_aliases = scope_aliases[id(root_scope)]
         self.findings: list[dict[str, Any]] = []
+
+    def _visit_scope_body(self, scope: ast.AST, body: list[ast.stmt]) -> None:
+        previous = (self.module_aliases, self.function_aliases)
+        self.module_aliases, self.function_aliases = self.scope_aliases.get(
+            id(scope), previous
+        )
+        for statement in body:
+            self.visit(statement)
+        self.module_aliases, self.function_aliases = previous
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+        for argument in [
+            *node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs
+        ]:
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+        if node.args.vararg and node.args.vararg.annotation is not None:
+            self.visit(node.args.vararg.annotation)
+        if node.args.kwarg and node.args.kwarg.annotation is not None:
+            self.visit(node.args.kwarg.annotation)
+        if node.returns is not None:
+            self.visit(node.returns)
+        self._visit_scope_body(node, node.body)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        self._visit_scope_body(node, node.body)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+        previous = (self.module_aliases, self.function_aliases)
+        self.module_aliases, self.function_aliases = self.scope_aliases.get(
+            id(node), previous
+        )
+        self.visit(node.body)
+        self.module_aliases, self.function_aliases = previous
 
     def _add(
         self,
@@ -487,8 +579,8 @@ def analyze_python_security(
             except (OSError, UnicodeError, ValueError):
                 continue
 
-            module_aliases, function_aliases = _collect_import_aliases(tree)
-            visitor = _SecurityVisitor(relative, module_aliases, function_aliases)
+            scope_aliases = _collect_import_aliases(tree)
+            visitor = _SecurityVisitor(relative, scope_aliases, tree)
             visitor.visit(tree)
             findings.extend(visitor.findings)
         if truncated_reason:
@@ -510,7 +602,7 @@ def analyze_python_security(
         "file_hashes": file_hashes,
         "limitations": [
             "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, obvious dynamic SQL string construction, and selected known credential formats in string literals.",
-            "The analyzer does not perform taint analysis, data-flow analysis, import alias resolution, or prove that SQL interpolation values are attacker-controlled.",
+            "Imported API aliases are resolved conservatively within lexical scopes; aliases rebound or shadowed in a scope are excluded. The analyzer does not perform taint analysis, data-flow analysis, or prove that SQL interpolation values are attacker-controlled.",
             "pickle findings are heuristic because exploitability depends on the trust boundary of the input.",
             "Credential checks recognize selected token/key formats only; they do not detect arbitrary passwords, perform entropy analysis, or validate whether a credential is active. The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
             "No project code is imported or executed and no files are modified.",
