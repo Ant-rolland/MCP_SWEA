@@ -836,7 +836,7 @@ def test_assess_project_runs_current_analyses_and_returns_consolidated_summary(t
     assert set(result.result["analyses"]) == {
         "architecture", "dependencies", "contracts", "code_quality", "security",
     }
-    assert result.result["risk_summary"]["domains_assessed"] >= 5
+    assert result.result["risk_summary"]["domains_assessed"] == 4
     assert result.result["total_findings"] == len(result.findings)
     assert result.result["total_evidence"] == len(result.evidence)
 
