@@ -1,3 +1,5 @@
+import json
+
 from swea_sentinel.config import ProjectIndexSettings
 from swea_sentinel.core.project_service import ProjectService
 from swea_sentinel.persistence.database import Database
