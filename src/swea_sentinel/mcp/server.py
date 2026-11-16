@@ -123,6 +123,13 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
         return service.analyze_dependencies(payload.project_id).model_dump(mode="json")
 
     @mcp.tool()
+    @_audit_tool(database, "swea_analyze_security")
+    def swea_analyze_security(project_id: str) -> dict[str, Any]:
+        """Run bounded static Python security checks without executing project code."""
+        payload = ProjectReferenceInput(project_id=project_id)
+        return service.analyze_security(payload.project_id).model_dump(mode="json")
+
+    @mcp.tool()
     @_audit_tool(database, "swea_analyze_code_quality")
     def swea_analyze_code_quality(project_id: str) -> dict[str, Any]:
         """Run bounded static Python code-quality checks without executing project code."""
