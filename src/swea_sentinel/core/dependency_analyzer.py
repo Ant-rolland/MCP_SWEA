@@ -78,6 +78,13 @@ def _dependency_names(path: Path, ecosystem: str, content: bytes) -> list[str]:
             match = PACKAGE_NAME.match(line)
             if match:
                 names.add(match.group(1))
+    elif path.name == "composer.json":
+        data = json.loads(text)
+        if isinstance(data, dict):
+            for section in ("require", "require-dev"):
+                values = data.get(section, {})
+                if isinstance(values, dict):
+                    names.update(str(name) for name in values if name != "php")
     elif path.name == "go.mod":
         in_require = False
         for line in text.splitlines():
@@ -487,7 +494,63 @@ def _parse_go_sum(content: bytes) -> dict[str, Any]:
     }
 
 
+def _parse_composer_lockfile(content: bytes) -> dict[str, Any]:
+    """Parse Composer package coordinates, requirements, and explicit PSR-4 maps."""
+    data = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(data, dict):
+        raise TypeError("Composer lockfile root must be an object")
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    namespaces: list[dict[str, str]] = []
+    for section in ("packages", "packages-dev"):
+        records = data.get(section, [])
+        if not isinstance(records, list):
+            raise TypeError("Composer package sections must be arrays")
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            name, version = record.get("name"), record.get("version")
+            if not isinstance(name, str) or not isinstance(version, str):
+                continue
+            install_path = name + "@" + version
+            packages.append({
+                "name": name, "version": version, "install_path": install_path,
+            })
+            requirements = record.get("require", {})
+            if isinstance(requirements, dict):
+                for target in sorted(requirements):
+                    if target != "php":
+                        edges.append({
+                            "source": name, "target": str(target),
+                            "source_install_path": install_path,
+                        })
+            autoload = record.get("autoload", {})
+            psr4 = autoload.get("psr-4", {}) if isinstance(autoload, dict) else {}
+            if isinstance(psr4, dict):
+                for prefix, _paths in sorted(psr4.items()):
+                    if isinstance(prefix, str) and prefix.strip("\\\\"):
+                        namespaces.append({
+                            "prefix": prefix.rstrip("\\\\"),
+                            "package": name,
+                            "version": version,
+                            "install_path": install_path,
+                        })
+    namespaces.sort(key=lambda item: (item["prefix"], item["package"], item["version"]))
+    return {
+        "lockfile_version": str(data.get("plugin-api-version", "composer")),
+        "locked_packages": packages,
+        "locked_package_count": len(packages),
+        "locked_dependency_edges": edges,
+        "locked_dependency_edge_count": len(edges),
+        "locked_php_namespaces": namespaces,
+    }
+
+
 def _classify(name: str) -> tuple[str, str] | None:
+    if name == "composer.json":
+        return "php", "manifest"
+    if name == "composer.lock":
+        return "php", "lockfile"
     if name == "package.json":
         return "node", "manifest"
     if name in {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"}:
@@ -589,6 +652,8 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_cargo_lockfile(content)
                     elif ecosystem == "go" and path.name == "go.sum":
                         lockfile_details = _parse_go_sum(content)
+                    elif ecosystem == "php" and path.name == "composer.lock":
+                        lockfile_details = _parse_composer_lockfile(content)
                     if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
