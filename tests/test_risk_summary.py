@@ -138,3 +138,29 @@ def test_risk_summary_keeps_latest_assessment_per_analysis_type(tmp_path):
     assert {
         item["analysis_level"] for item in summary.result["analyses"]
     } == set(architecture["analysis_levels"])
+
+
+def test_risk_summary_marks_truncated_php_source_scan_incomplete(tmp_path):
+    project = tmp_path / "php-sample"
+    project.mkdir()
+    (project / "composer.lock").write_text(
+        '{"packages": [], "packages-dev": []}', encoding="utf-8"
+    )
+    (project / "a.php").write_text("<?php use Vendor\\A;\n", encoding="utf-8")
+    (project / "b.php").write_text("<?php use Vendor\\B;\n", encoding="utf-8")
+    service = ProjectService(
+        Database(tmp_path / "swea.sqlite"),
+        ProjectIndexSettings(max_files=1),
+    )
+    registered = service.initialize(str(project))
+
+    service.analyze_dependencies(registered.project_id)
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "partial"
+    assert "architecture" in summary.result["domains_incomplete"]
+    dependency_analysis = next(
+        item for item in summary.result["analyses"]
+        if item["analysis_level"] == "dependency_manifests_and_lockfiles"
+    )
+    assert dependency_analysis["scan_complete"] is False
