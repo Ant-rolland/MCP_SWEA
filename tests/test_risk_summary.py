@@ -20,6 +20,7 @@ def test_risk_summary_uses_only_latest_assessment_per_domain(tmp_path):
 
     assert summary.status.value == "completed"
     assert summary.result["domains_assessed"] == 1
+    assert len(summary.result["domains_not_assessed"]) == 11
     assert summary.result["overall"]["open_finding_count"] == 0
     assert summary.result["domains"][0]["domain"] == "code_quality"
     assert summary.result["domains"][0]["scan_complete"] is True
@@ -56,6 +57,7 @@ def test_risk_summary_without_assessments_is_explicitly_partial(tmp_path):
 
     assert summary.status.value == "partial"
     assert summary.result["domains_assessed"] == 0
+    assert len(summary.result["domains_not_assessed"]) == 12
     assert summary.result["overall"]["open_finding_count"] == 0
 
 
