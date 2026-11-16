@@ -111,36 +111,45 @@ def _router_prefixes(tree: ast.Module) -> dict[str, list[str] | None]:
         for child, _prefix in mounts
     }
 
+    def invalidate(name: str, active: tuple[str, ...] = ()) -> None:
+        if name in active or name in invalid_routers:
+            return
+        invalid_routers.add(name)
+        next_active = (*active, name)
+        for child_name, _mount_prefix in mounts_by_parent.get(name, []):
+            invalidate(child_name, next_active)
+
     def resolve(
         name: str, inherited_prefix: str, active: tuple[str, ...]
     ) -> None:
         if name in active:
             cycle_start = active.index(name)
-            invalid_routers.update(active[cycle_start:])
+            for cycle_name in active[cycle_start:]:
+                invalidate(cycle_name)
             return
         base_prefix = router_bases.get(name)
         if base_prefix is None or name in invalid_routers:
-            invalid_routers.add(name)
+            invalidate(name)
             return
         effective_prefix = _join_paths(inherited_prefix, base_prefix)
         resolved_sets.setdefault(name, set()).add(effective_prefix)
         next_active = (*active, name)
         for child_name, mount_prefix in mounts_by_parent.get(name, []):
             if mount_prefix is None:
-                invalid_routers.add(child_name)
+                invalidate(child_name)
                 continue
             resolve(child_name, _join_paths(effective_prefix, mount_prefix), next_active)
 
     for child_name, mount_prefix in mounts_by_parent.get(None, []):
         if mount_prefix is None:
-            invalid_routers.add(child_name)
+            invalidate(child_name)
             continue
         resolve(child_name, mount_prefix, ())
 
-    # A router not mounted by another router is a root in this file. This also
-    # supports factories where the final app mount is outside the scanned file.
+    # Resolve unmounted roots (including rootless cycles) conservatively. If a
+    # dynamic ancestor or cycle prevents a unique prefix, invalidate descendants.
     for name in router_bases:
-        if name not in mounted_as_child and name not in resolved_sets:
+        if name not in resolved_sets and name not in invalid_routers:
             resolve(name, "", ())
 
     return {
