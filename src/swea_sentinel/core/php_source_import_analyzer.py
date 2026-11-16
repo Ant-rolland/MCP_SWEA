@@ -32,14 +32,14 @@ def _class_imports(source: str) -> set[str]:
         if group:
             prefix, members = group.groups()
             for member in members.split(","):
-                name = re.split(r"\s+as\s+", member.strip(), maxsplit=1, flags=re.I)[0]
+                name = re.split(r"\s+as\s+", member.strip(), maxsplit=1, flags=re.IGNORECASE)[0]
                 if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_\\]*", name):
                     imports.add(prefix + "\\" + name)
             continue
         match = SINGLE_USE.match(line)
         if match:
             imported = re.split(
-                r"\s+as\s+", match.group(1).strip(), maxsplit=1, flags=re.I
+                r"\s+as\s+", match.group(1).strip(), maxsplit=1, flags=re.IGNORECASE
             )[0]
             imports.add(imported)
     return imports
