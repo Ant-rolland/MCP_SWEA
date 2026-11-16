@@ -678,23 +678,23 @@ class ProjectService:
                     ))
             for import_edge in php_import_report["edges"]:
                 imported_name = import_edge["import_name"].strip("\\").casefold()
-                candidates = [
+                php_namespace_candidates = [
                     (prefix, node)
                     for prefix, node in locked_php_namespaces
                     if imported_name == prefix.casefold()
                     or imported_name.startswith(prefix.casefold() + "\\")
                 ]
-                if not candidates:
+                if not php_namespace_candidates:
                     continue
-                longest_prefix = max(len(prefix) for prefix, _node in candidates)
-                longest_candidates = [
-                    node for prefix, node in candidates if len(prefix) == longest_prefix
+                php_longest_prefix = max(len(prefix) for prefix, _node in php_namespace_candidates)
+                longest_php_namespace_candidates = [
+                    node for prefix, node in php_namespace_candidates if len(prefix) == php_longest_prefix
                 ]
-                if len(longest_candidates) != 1:
+                if len(longest_php_namespace_candidates) != 1:
                     continue
                 dependency_rows.append((
                     str(uuid4()), project_id,
-                    import_edge["source"], longest_candidates[0],
+                    import_edge["source"], longest_php_namespace_candidates[0],
                     "php_package_graph",
                 ))
             # Resolve Go import paths to the longest exact go.sum module prefix.
@@ -726,19 +726,19 @@ class ProjectService:
                 ]
                 if not module_candidates:
                     continue
-                longest_prefix = max(
+                go_longest_prefix = max(
                     len(module_candidate[0]) for module_candidate in module_candidates
                 )
-                longest_candidates = [
+                go_longest_candidates = [
                     module_candidate
                     for module_candidate in module_candidates
-                    if len(module_candidate[0]) == longest_prefix
+                    if len(module_candidate[0]) == go_longest_prefix
                 ]
-                if len(longest_candidates) != 1:
+                if len(go_longest_candidates) != 1:
                     continue
                 dependency_rows.append((
                     str(uuid4()), project_id,
-                    import_edge["source"], longest_candidates[0][2],
+                    import_edge["source"], go_longest_candidates[0][2],
                     "go_package_graph",
                 ))
             # Rust crate names use underscores in source for hyphenated Cargo
