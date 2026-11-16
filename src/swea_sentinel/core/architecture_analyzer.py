@@ -149,10 +149,10 @@ def analyze_python_imports(
         visited.add(start_node)
         stack: list[tuple[str, Any]] = [(start_node, iter(sorted(adjacency[start_node])))]
         while stack:
-            node, children = stack[-1]
+            current_module, children = stack[-1]
             child = next(children, None)
             if child is None:
-                finish_order.append(node)
+                finish_order.append(current_module)
                 stack.pop()
             elif child not in visited:
                 visited.add(child)
@@ -167,9 +167,9 @@ def analyze_python_imports(
         pending = [start_node]
         assigned.add(start_node)
         while pending:
-            node = pending.pop()
-            component.append(node)
-            for parent in reverse_adjacency.get(node, set()):
+            current_module = pending.pop()
+            component.append(current_module)
+            for parent in reverse_adjacency.get(current_module, set()):
                 if parent not in assigned:
                     assigned.add(parent)
                     pending.append(parent)
