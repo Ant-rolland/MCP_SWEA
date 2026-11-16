@@ -233,17 +233,6 @@ class ProjectService:
             )
             for relative, digest in sorted(file_hashes.items())
         ]
-        evidence.extend(
-            Evidence(
-                kind="php_source_imports",
-                description="PHP source file inspected for literal class imports",
-                origin=DataOrigin.VERIFIED_SOURCE,
-                qualification=QualificationStatus.QUALIFIED,
-                source_path=source_path,
-                sha256=digest,
-            )
-            for source_path, digest in php_import_report["file_hashes"].items()
-        )
         status = (
             ExecutionStatus.PARTIAL
             if report["truncated"] or report["parse_errors"]
@@ -262,43 +251,6 @@ class ProjectService:
                 "DELETE FROM dependencies WHERE project_id = ? AND dependency_type = 'python_import'",
                 (project_id,),
             )
-            # Composer PSR-4 metadata is explicit package-to-namespace evidence.
-            # Resolve the longest namespace prefix only when that prefix has one
-            # unique locked package/version candidate; overlapping ties stay unlinked.
-            locked_php_namespaces: list[tuple[str, str]] = []
-            for manifest_item in report["manifests"]:
-                if (
-                    manifest_item["ecosystem"] != "php"
-                    or manifest_item["kind"] != "lockfile"
-                ):
-                    continue
-                lock_path = manifest_item["path"]
-                for namespace in manifest_item.get("locked_php_namespaces", []):
-                    locked_php_namespaces.append((
-                        namespace["prefix"].rstrip("\\\\"),
-                        f"{lock_path}#package:{namespace['package']}@{namespace['version']}",
-                    ))
-            for import_edge in php_import_report["edges"]:
-                imported_name = import_edge["import_name"].strip("\\\\").casefold()
-                candidates = [
-                    (prefix, node)
-                    for prefix, node in locked_php_namespaces
-                    if imported_name == prefix.casefold()
-                    or imported_name.startswith(prefix.casefold() + "\\\\")
-                ]
-                if not candidates:
-                    continue
-                longest_prefix = max(len(prefix) for prefix, _node in candidates)
-                longest_candidates = [
-                    node for prefix, node in candidates if len(prefix) == longest_prefix
-                ]
-                if len(longest_candidates) != 1:
-                    continue
-                dependency_rows.append((
-                    str(uuid4()), project_id,
-                    import_edge["source"], longest_candidates[0],
-                    "php_package_graph",
-                ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
@@ -533,6 +485,17 @@ class ProjectService:
             )
             for source_path, digest in rust_import_report["file_hashes"].items()
         )
+        evidence.extend(
+            Evidence(
+                kind="php_source_imports",
+                description="PHP source file inspected for literal class imports",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=source_path,
+                sha256=digest,
+            )
+            for source_path, digest in php_import_report["file_hashes"].items()
+        )
         status = (
             ExecutionStatus.PARTIAL
             if (
@@ -696,6 +659,43 @@ class ProjectService:
                     str(uuid4()), project_id,
                     import_edge["source"], node_candidates[0][2],
                     "node_package_graph",
+                ))
+            # Composer PSR-4 metadata is explicit package-to-namespace evidence.
+            # Resolve the longest namespace prefix only when that prefix has one
+            # unique locked package/version candidate; overlapping ties stay unlinked.
+            locked_php_namespaces: list[tuple[str, str]] = []
+            for manifest_item in report["manifests"]:
+                if (
+                    manifest_item["ecosystem"] != "php"
+                    or manifest_item["kind"] != "lockfile"
+                ):
+                    continue
+                lock_path = manifest_item["path"]
+                for namespace in manifest_item.get("locked_php_namespaces", []):
+                    locked_php_namespaces.append((
+                        namespace["prefix"].rstrip("\\"),
+                        f"{lock_path}#package:{namespace['package']}@{namespace['version']}",
+                    ))
+            for import_edge in php_import_report["edges"]:
+                imported_name = import_edge["import_name"].strip("\\").casefold()
+                candidates = [
+                    (prefix, node)
+                    for prefix, node in locked_php_namespaces
+                    if imported_name == prefix.casefold()
+                    or imported_name.startswith(prefix.casefold() + "\\")
+                ]
+                if not candidates:
+                    continue
+                longest_prefix = max(len(prefix) for prefix, _node in candidates)
+                longest_candidates = [
+                    node for prefix, node in candidates if len(prefix) == longest_prefix
+                ]
+                if len(longest_candidates) != 1:
+                    continue
+                dependency_rows.append((
+                    str(uuid4()), project_id,
+                    import_edge["source"], longest_candidates[0],
+                    "php_package_graph",
                 ))
             # Resolve Go import paths to the longest exact go.sum module prefix.
             # Only one candidate (including version and lockfile) is accepted.
