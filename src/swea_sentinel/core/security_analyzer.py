@@ -534,10 +534,115 @@ class _SecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+SECRET_SCAN_SUFFIXES = {
+    ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf",
+    ".properties", ".tf", ".tfvars", ".sh", ".ps1", ".bat", ".cmd",
+    ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rs",
+    ".java", ".cs", ".php", ".xml", ".gradle", ".config", ".txt",
+    ".md", ".pem", ".key",
+}
+
+
+def _scan_project_secret_formats(
+    root: Path,
+    settings: ProjectIndexSettings,
+    started: float,
+) -> dict[str, Any]:
+    """Scan bounded text/config files for exact known token formats without returning values."""
+    excluded = IGNORED_DIRS | set(settings.excluded_directories)
+    findings: list[dict[str, Any]] = []
+    file_hashes: dict[str, str] = {}
+    files_scanned = 0
+    bytes_scanned = 0
+    truncated_reason: str | None = None
+
+    for current, dirs, filenames in os.walk(root, followlinks=False):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in excluded and not (Path(current) / name).is_symlink()
+        )
+        for filename in sorted(filenames):
+            if time.monotonic() - started > settings.max_scan_seconds:
+                truncated_reason = "maximum_scan_duration"
+                break
+            path = Path(current) / filename
+            is_env_file = filename == ".env" or filename.startswith(".env.")
+            if (
+                path.is_symlink()
+                or path.suffix.lower() == ".py"
+                or not (is_env_file or path.suffix.lower() in SECRET_SCAN_SUFFIXES)
+            ):
+                continue
+            if files_scanned >= settings.max_files:
+                truncated_reason = "maximum_file_count"
+                break
+            try:
+                size = path.stat().st_size
+                if not path.is_file() or size > settings.max_file_bytes:
+                    continue
+                if bytes_scanned + size > settings.max_total_bytes:
+                    truncated_reason = "maximum_total_bytes"
+                    break
+                with path.open("rb") as stream:
+                    raw = stream.read(settings.max_file_bytes + 1)
+                if len(raw) > settings.max_file_bytes:
+                    continue
+                if bytes_scanned + len(raw) > settings.max_total_bytes:
+                    truncated_reason = "maximum_total_bytes"
+                    break
+                text = raw.decode("utf-8-sig")
+            except (OSError, UnicodeError, ValueError):
+                continue
+
+            files_scanned += 1
+            bytes_scanned += len(raw)
+            relative = path.relative_to(root).as_posix()
+            matched = False
+            seen_lines: set[tuple[int, int]] = set()
+            for pattern_index, pattern in enumerate(SECRET_PATTERNS):
+                for match in pattern.finditer(text):
+                    line_number = text.count("\n", 0, match.start()) + 1
+                    marker = (pattern_index, line_number)
+                    if marker in seen_lines:
+                        continue
+                    seen_lines.add(marker)
+                    matched = True
+                    findings.append({
+                        "code": "HARDCODED_CREDENTIAL_FORMAT",
+                        "severity": "high",
+                        "confidence": "HIGH_CONFIDENCE",
+                        "path": relative,
+                        "line": line_number,
+                        "message": "A known credential/token format was detected; the matched value is redacted.",
+                        "recommendation": "Move the credential to a secret manager or protected environment variable, rotate it if exposed, and review access logs.",
+                    })
+            if matched:
+                file_hashes[relative] = hashlib.sha256(raw).hexdigest()
+        if truncated_reason:
+            break
+
+    findings.sort(key=lambda item: (item["path"], item["line"], item["code"]))
+    return {
+        "analysis_level": "bounded_text_credential_formats",
+        "files_scanned": files_scanned,
+        "bytes_scanned": bytes_scanned,
+        "finding_count": len(findings),
+        "findings": findings,
+        "file_hashes": file_hashes,
+        "truncated": truncated_reason is not None,
+        "truncated_reason": truncated_reason,
+        "limitations": [
+            "Only selected known token/key formats are recognized; arbitrary passwords, custom secrets, and entropy-based candidates are not detected.",
+            "Only bounded UTF-8 text/config files are scanned. Binary credential stores, dependency directories, runtime environment values, and deployed services are not inspected.",
+            "Matched credential values are never returned or persisted; only path, line, pattern category, and SHA-256 evidence are retained.",
+        ],
+    }
+
+
 def analyze_python_security(
     root: Path, settings: ProjectIndexSettings
 ) -> dict[str, Any]:
-    """Inspect Python syntax for selected risky APIs without executing project code."""
+    """Inspect Python AST patterns and bounded text files for selected security risks."""
     started = time.monotonic()
     excluded = IGNORED_DIRS | set(settings.excluded_directories)
     findings: list[dict[str, Any]] = []
@@ -598,25 +703,31 @@ def analyze_python_security(
         if truncated_reason:
             break
 
+    secret_scan = _scan_project_secret_formats(root, settings, started)
+    findings.extend(secret_scan["findings"])
+    file_hashes.update(secret_scan["file_hashes"])
     findings.sort(key=lambda item: (
         item["path"], item["line"], item["code"], item["message"]
     ))
+    combined_truncated_reason = truncated_reason or secret_scan["truncated_reason"]
     return {
-        "analysis_level": "static_python_security_patterns",
+        "analysis_level": "static_project_security_patterns",
         "files_scanned": files_scanned,
         "bytes_scanned": bytes_scanned,
         "finding_count": len(findings),
         "findings": findings,
         "parse_errors": parse_errors,
-        "truncated": truncated_reason is not None,
-        "truncated_reason": truncated_reason,
+        "secret_scan": secret_scan,
+        "truncated": combined_truncated_reason is not None,
+        "truncated_reason": combined_truncated_reason,
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "file_hashes": file_hashes,
         "limitations": [
-            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, obvious dynamic SQL string construction, and selected known credential formats in string literals.",
-            "Imported API aliases are resolved conservatively within lexical scopes; aliases rebound or shadowed in a scope are excluded. The analyzer does not perform taint analysis, data-flow analysis, or prove that SQL interpolation values are attacker-controlled.",
+            "Python AST checks cover selected dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, and obvious dynamic SQL construction patterns.",
+            "Imported API aliases are resolved conservatively within lexical scopes; aliases rebound or shadowed in a scope are excluded. The analyzer does not perform taint/data-flow analysis or prove that SQL interpolation values are attacker-controlled.",
+            "Known credential formats are also scanned in bounded UTF-8 text/config files; binary files, arbitrary passwords, custom secrets, runtime environment values, dependency packages, and deployed services are not inspected.",
+            "Credential matches are never returned or persisted; evidence contains only source paths, line numbers, and SHA-256 hashes.",
             "pickle findings are heuristic because exploitability depends on the trust boundary of the input.",
-            "Credential checks recognize selected token/key formats only; they do not detect arbitrary passwords, perform entropy analysis, or validate whether a credential is active. The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
             "No project code is imported or executed and no files are modified.",
         ],
     }
