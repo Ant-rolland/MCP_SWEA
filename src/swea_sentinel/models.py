@@ -1,7 +1,7 @@
 """Versioned, evidence-aware Pydantic contracts shared by MCP adapters and services."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -12,7 +12,7 @@ SCHEMA_VERSION = "1.0"
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ContractModel(BaseModel):
