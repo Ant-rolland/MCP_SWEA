@@ -361,7 +361,10 @@ class ProjectService:
                 "target_identifier": target,
                 "impact_by_relation": impact_by_relation,
                 "direct_dependents": python_impact.get("direct_dependents", []),
-                "transitive_dependents": python_impact.get("transitive_dependents", []),
+                "transitive_dependents": [
+                    {"path": item["identifier"], "distance": item["distance"]}
+                    for item in python_impact.get("transitive_dependents", [])
+                ],
                 "impact_count": python_impact.get("impact_count", 0),
             },
             evidence=evidence,
