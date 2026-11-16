@@ -460,19 +460,39 @@ class ProjectService:
                     "npm" if item["ecosystem"] == "node" else
                     item["ecosystem"]
                 )
-                for package in item.get("locked_packages", []):
-                    install_path = package["install_path"]
+                packages = item.get("locked_packages", [])
+                package_by_install_path = {
+                    package["install_path"]: package
+                    for package in packages
+                    if isinstance(package.get("install_path"), str)
+                }
+                packages_by_name: dict[str, list[dict[str, str]]] = {}
+                for package in packages:
+                    packages_by_name.setdefault(package["name"], []).append(package)
+
+                def package_node(package: dict[str, str]) -> str:
+                    coordinate = f"{package['name']}@{package['version']}"
+                    return f"{lockfile_path}#package:{coordinate}"
+
+                for package in packages:
+                    node = package_node(package)
                     dependency_rows.append((
-                        str(uuid4()), project_id,
-                        f"{lockfile_path}#{install_path}",
-                        f"{package['name']}@{package['version']}",
+                        str(uuid4()), project_id, node, node,
                         f"lockfile:{lockfile_format}:package",
                     ))
                 for edge in item.get("locked_dependency_edges", []):
+                    source_package = package_by_install_path.get(edge["source_install_path"])
+                    if source_package is None:
+                        continue
+                    candidates = packages_by_name.get(edge["target"], [])
+                    # A name-only lockfile edge is safe to connect only when it
+                    # identifies one locked version. Ambiguous versions stay unlinked.
+                    if len(candidates) != 1:
+                        continue
                     dependency_rows.append((
                         str(uuid4()), project_id,
-                        f"{lockfile_path}#{edge['source_install_path']}",
-                        edge["target"],
+                        package_node(source_package),
+                        package_node(candidates[0]),
                         f"lockfile:{lockfile_format}:edge",
                     ))
             conn.executemany(
