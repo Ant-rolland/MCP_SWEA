@@ -15,7 +15,7 @@ IGNORED_DIRS = {
     ".mypy_cache", ".pytest_cache", "build", "dist", "coverage",
 }
 SINGLE_USE = re.compile(
-    r"""^\s*use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*(?:\s+as\s+[A-Za-z_]\w*)?)\s*;"""
+    r"""^use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*(?:\s+as\s+[A-Za-z_]\w*)?)\s*;"""
 )
 GROUP_USE = re.compile(
     r"""^\s*use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*)\\\{([^}]+)\}\s*;"""
@@ -115,7 +115,7 @@ def analyze_php_source_imports(
         "truncated_reason": truncated_reason,
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
-            "Only literal single-line PHP class use statements and grouped imports are recognized; this is not a PHP parser.",
+            "Only column-zero, single-line PHP class use statements and grouped imports are recognized; this avoids treating normally indented class trait uses as package imports but may miss braced-namespace imports. This is not a PHP parser.",
             "Function and constant imports, dynamic class names, aliases, traits, attributes, and runtime autoload behavior are not resolved.",
             "Package attribution uses only explicit PSR-4 namespace prefixes recorded in Composer lock metadata; PSR-0 and inferred namespace conventions are excluded.",
             "A namespace import is structural evidence, not proof that the imported class is instantiated or used at runtime.",
