@@ -532,3 +532,85 @@ def test_node_source_import_attribution_skips_ambiguous_locked_versions(tmp_path
             (registered.project_id,),
         ).fetchone()[0]
     assert source_links == 0
+
+
+def test_go_source_imports_link_to_longest_unique_go_sum_module_prefix(tmp_path):
+    project = tmp_path / "go-source-graph"
+    project.mkdir()
+    (project / "go.sum").write_text(
+        "example.com/lib v1.2.3 h1:abc=\n"
+        "example.com/lib v1.2.3/go.mod h1:def=\n"
+        "example.com/lib/v2 v2.1.0 h1:ghi=\n",
+        encoding="utf-8",
+    )
+    (project / "service.go").write_text(
+        "package service\n"
+        "import (\n"
+        "    base "example.com/lib/pkg"\n"
+        "    v2 "example.com/lib/v2/pkg"\n"
+        "    "fmt"\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["go_source_imports"]["edge_count"] == 3
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? AND dependency_type = 'go_package_graph'",
+            (registered.project_id,),
+        ).fetchall()
+    assert {
+        (row["source_path"], row["target_name"], row["dependency_type"])
+        for row in rows
+    } == {
+        ("service.go", "go.sum#package:example.com/lib@v1.2.3", "go_package_graph"),
+        ("service.go", "go.sum#package:example.com/lib/v2@v2.1.0", "go_package_graph"),
+    }
+
+    impact = service.check_blast_radius(
+        registered.project_id, "go.sum#package:example.com/lib/v2@v2.1.0"
+    )
+    assert impact.result["impact_by_relation"]["go_package_graph"]["direct_dependents"] == [
+        "service.go"
+    ]
+
+    service.analyze_dependencies(registered.project_id)
+    with db.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'go_package_graph'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert count == 2
+
+
+def test_go_source_import_attribution_skips_ambiguous_module_versions(tmp_path):
+    project = tmp_path / "go-ambiguous"
+    project.mkdir()
+    (project / "go.sum").write_text(
+        "example.com/lib v1.2.3 h1:abc=\n"
+        "example.com/lib v1.3.0 h1:def=\n",
+        encoding="utf-8",
+    )
+    (project / "main.go").write_text(
+        'package main\nimport "example.com/lib/pkg"\n',
+        encoding="utf-8",
+    )
+    service = ProjectService(Database(tmp_path / "db.sqlite"))
+    registered = service.initialize(str(project))
+
+    service.analyze_dependencies(registered.project_id)
+
+    with service.db.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'go_package_graph' AND source_path = 'main.go'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert count == 0
