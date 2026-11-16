@@ -5,12 +5,14 @@ from swea_sentinel.core.security_analyzer import analyze_python_security
 def test_detects_selected_risky_python_apis_and_respects_safe_yaml_loader(tmp_path):
     (tmp_path / "security.py").write_text(
         "import os, pickle, subprocess, yaml\n"
+        "from yaml import CSafeLoader\n"
         "eval(user_input)\n"
         "exec(code)\n"
         "os.system(command)\n"
         "subprocess.run(command, shell=True)\n"
         "yaml.load(payload)\n"
         "yaml.load(payload, Loader=yaml.SafeLoader)\n"
+        "yaml.load(payload, Loader=CSafeLoader)\n"
         "yaml.unsafe_load(payload)\n"
         "pickle.loads(payload)\n",
         encoding="utf-8",
