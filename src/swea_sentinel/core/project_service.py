@@ -303,11 +303,9 @@ class ProjectService:
             ).fetchall()
             evidence_rows = conn.execute(
                 "SELECT payload_json FROM evidence WHERE project_id = ? "
-                "AND kind IN (
-                    'python_source_file', 'python_route_source',
-                    'node_source_imports', 'go_source_imports',
-                    'rust_source_imports', 'php_source_imports'
-                )",
+                "AND kind IN ('python_source_file', 'python_route_source', "
+                "'node_source_imports', 'go_source_imports', "
+                "'rust_source_imports', 'php_source_imports')",
                 (project_id,),
             ).fetchall()
 
