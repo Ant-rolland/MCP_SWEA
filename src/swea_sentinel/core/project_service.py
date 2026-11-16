@@ -251,34 +251,6 @@ class ProjectService:
                 "DELETE FROM dependencies WHERE project_id = ? AND dependency_type = 'python_import'",
                 (project_id,),
             )
-            # Link JavaScript/TypeScript source imports only to one exact,
-            # uniquely locked npm package name. Package aliases are not guessed.
-            locked_node_packages: list[tuple[str, str, str]] = []
-            for manifest_item in report["manifests"]:
-                if (
-                    manifest_item["ecosystem"] != "node"
-                    or manifest_item["kind"] != "lockfile"
-                ):
-                    continue
-                lock_path = manifest_item["path"]
-                for package in manifest_item.get("locked_packages", []):
-                    locked_node_packages.append((
-                        package["name"],
-                        lock_path,
-                        f"{lock_path}#package:{package['name']}@{package['version']}",
-                    ))
-            for import_edge in node_import_report["edges"]:
-                candidates = [
-                    package for package in locked_node_packages
-                    if package[0] == import_edge["import_root"]
-                ]
-                if len(candidates) != 1:
-                    continue
-                dependency_rows.append((
-                    str(uuid4()), project_id,
-                    import_edge["source"], candidates[0][2],
-                    "node_package_graph",
-                ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
                 "VALUES(?,?,?,?,?)",
@@ -602,6 +574,35 @@ class ProjectService:
                     str(uuid4()), project_id,
                     import_edge["source"], python_candidates[0][2],
                     "python_package_graph",
+                ))
+
+            # Link JS/TS source imports only to one exact, uniquely locked npm package.
+            # Package aliases and ambiguous package versions are deliberately skipped.
+            locked_node_packages: list[tuple[str, str, str]] = []
+            for manifest_item in report["manifests"]:
+                if (
+                    manifest_item["ecosystem"] != "node"
+                    or manifest_item["kind"] != "lockfile"
+                ):
+                    continue
+                lock_path = manifest_item["path"]
+                for package in manifest_item.get("locked_packages", []):
+                    locked_node_packages.append((
+                        package["name"],
+                        lock_path,
+                        f"{lock_path}#package:{package['name']}@{package['version']}",
+                    ))
+            for import_edge in node_import_report["edges"]:
+                node_candidates = [
+                    package for package in locked_node_packages
+                    if package[0] == import_edge["import_root"]
+                ]
+                if len(node_candidates) != 1:
+                    continue
+                dependency_rows.append((
+                    str(uuid4()), project_id,
+                    import_edge["source"], node_candidates[0][2],
+                    "node_package_graph",
                 ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
