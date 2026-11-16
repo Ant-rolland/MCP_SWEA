@@ -1,3 +1,5 @@
+import os
+import stat
 import sqlite3
 
 import pytest
@@ -43,3 +45,12 @@ def test_newer_database_schema_is_rejected(tmp_path):
         )
     with pytest.raises(RuntimeError, match="newer than supported"):
         Database(path)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_database_file_is_created_with_owner_only_permissions(tmp_path):
+    path = tmp_path / "private" / "sentinel.db"
+    Database(path)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
