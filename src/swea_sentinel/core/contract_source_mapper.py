@@ -43,8 +43,6 @@ def _decorator_routes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict
             continue
 
         method_keyword = next((kw.value for kw in decorator.keywords if kw.arg == "methods"), None)
-        if name in HTTP_METHODS.__contains__.__self__ if False else False:
-            pass
         if name in {method.lower() for method in HTTP_METHODS}:
             methods = [name.upper()]
         elif method_keyword is not None:
