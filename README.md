@@ -9,7 +9,7 @@ SWEA Sentinel is an independent MCP service that adds an evidence-aware engineer
 - SQLite persistence with WAL, foreign keys, ordered schema migrations, and governance-oriented tables.
 - Per-tool execution records and audit events, including successful and failed tool invocations.
 - Project registration and bounded filesystem inventory (metadata and SHA-256 only; source contents are not stored or sent to external services).
-- MCP tools for project initialization, inventory analysis, architecture analysis, code-quality and security analysis, blast-radius checks, dependency-manifest discovery, contract analysis, context, status, and index refresh.
+- MCP tools for project initialization, inventory analysis, architecture analysis, code-quality and security analysis, risk summaries, blast-radius checks, dependency-manifest discovery, contract analysis, context, status, and index refresh.
 - Initial P2 architecture analyzer: bounded, read-only Python AST import graph; local dependency edges, external import roots, candidate import-cycle detection, syntax-error reporting, and qualified source-hash evidence persisted with assessment records.
 - Initial blast-radius query: direct and transitive dependents from independently traversed persisted dependency-relation layers (Python imports, manifest declarations, lockfile edges, and exact API-contract-to-route links); accepts a project-relative file or exact dependency identifier and rejects traversal paths. Python source evidence is attached where available. Lockfile package edges use canonical package/version node identifiers; name-only edges are connected only when the target package name resolves to exactly one locked version. Ambiguous targets are deliberately left unlinked to avoid false impact paths.
 - Initial P2 dependency discovery: bounded, read-only detection of Node.js, Python, Rust, Go, Java/Gradle, and .NET manifests; direct declaration extraction for package.json, pyproject.toml, requirements files, Cargo.toml, go.mod, and .NET project files; SHA-256 evidence and SQLite persistence. npm (v1-v3), pnpm, Yarn Classic/Berry, Poetry, Pipenv, and Cargo lockfile package/version records and dependency edges are persisted separately from manifest declarations. Go `go.mod` requirements are stored as declared dependency edges (including `// indirect` markers). Sibling `go.sum` records are correlated by exact module/version and distinguish module checksums from `go.mod` checksums; this is checksum-presence evidence only and does not claim to determine the version selected by Go or create dependency edges.
@@ -46,6 +46,7 @@ Default database: `~/.swea-sentinel/sentinel.db`. Override with `SWEA_DB_PATH` o
 - `swea_analyze_contracts`
 - `swea_analyze_code_quality`
 - `swea_analyze_security`
+- `swea_get_risk_summary`
 - `swea_get_project_context`
 - `swea_get_project_status`
 - `swea_refresh_project_index`
