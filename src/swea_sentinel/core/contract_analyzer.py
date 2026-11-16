@@ -399,8 +399,13 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         "files_considered": files_considered,
         "files_inspected": inspected,
         "bytes_inspected": total_bytes,
-        "truncated": truncated_reason is not None,
-        "truncated_reason": truncated_reason,
+        "truncated": truncated_reason is not None or route_report["truncated"],
+        "truncated_reason": (
+            truncated_reason
+            if truncated_reason is not None
+            else f"python_route_scan:{route_report['truncated_reason']}"
+            if route_report["truncated"] else None
+        ),
         "findings": findings,
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
