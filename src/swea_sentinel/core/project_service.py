@@ -628,6 +628,8 @@ class ProjectService:
                         if item["ecosystem"] == "node"
                         else "rust_package_graph"
                         if item["ecosystem"] == "rust"
+                        else "php_package_graph"
+                        if item["ecosystem"] == "php"
                         else f"lockfile:{lockfile_format}:edge"
                     )
                     dependency_rows.append((
