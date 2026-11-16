@@ -682,6 +682,9 @@ class ProjectService:
                 evidence.append(item)
         evidence.sort(key=lambda item: item.source_path or "")
 
+        domains_not_assessed = sorted(
+            item.value for item in SWEADomain if item.value not in latest_by_domain
+        )
         status = (
             ExecutionStatus.PARTIAL
             if not latest_by_domain or incomplete_domains
@@ -694,6 +697,7 @@ class ProjectService:
                 "analysis_level": "latest_domain_risk_summary",
                 "domains_assessed": len(domains),
                 "domains_incomplete": incomplete_domains,
+                "domains_not_assessed": domains_not_assessed,
                 "overall": {
                     "open_finding_count": len(findings),
                     "severity_counts": severity_counts,
