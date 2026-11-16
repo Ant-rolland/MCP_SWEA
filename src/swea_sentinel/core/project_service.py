@@ -303,7 +303,11 @@ class ProjectService:
             ).fetchall()
             evidence_rows = conn.execute(
                 "SELECT payload_json FROM evidence WHERE project_id = ? "
-                "AND kind IN ('python_source_file', 'python_route_source')",
+                "AND kind IN (
+                    'python_source_file', 'python_route_source',
+                    'node_source_imports', 'go_source_imports',
+                    'rust_source_imports', 'php_source_imports'
+                )",
                 (project_id,),
             ).fetchall()
 
@@ -331,7 +335,11 @@ class ProjectService:
                         continue
                     distances[dependent] = distance + 1
                     pending.append((dependent, distance + 1))
-            if relation in {"python_import", "api_contract_graph"}:
+            if relation in {
+                "python_import", "api_contract_graph", "python_package_graph",
+                "node_package_graph", "go_package_graph", "rust_package_graph",
+                "php_package_graph",
+            }:
                 evidence_paths.update(distances)
             impact_by_relation[relation] = {
                 "direct_dependents": sorted(
@@ -381,7 +389,7 @@ class ProjectService:
             limitations=[
                 "Impact is calculated independently for each persisted dependency relation; graph layers are not joined across ecosystems.",
                 "Python imports and declared/locked package relationships are static observations, not proof of runtime use.",
-                "Manifest and lockfile edges describe package relationships; they do not identify which source files import or execute a package.",
+                "Manifest and lockfile edges alone do not identify source imports; separate source-to-package edges are created only where explicit, unique lock metadata supports attribution. None of these static edges proves runtime execution.",
                 "API contract impact includes only unique exact matches to literal Python route decorators; dynamic routes, router-prefix composition, registration calls, and non-Python implementations remain unresolved.",
                 "Dynamic imports, runtime dependency injection, generated modules and unresolved package identifiers are not inferred.",
             ],
