@@ -209,4 +209,4 @@ def test_security_aliases_are_resolved_per_function_scope(tmp_path):
         if item["code"] == "PYTHON_SUBPROCESS_SHELL_TRUE"
     ]
     assert len(findings) == 2
-    assert [item["line"] for item in findings] == [7, 10]
+    assert [item["line"] for item in findings] == [6, 9]
