@@ -411,23 +411,28 @@ class ProjectService:
         from swea_sentinel.core.dependency_analyzer import analyze_dependency_manifests
         from swea_sentinel.core.go_source_import_analyzer import analyze_go_source_imports
         from swea_sentinel.core.node_source_import_analyzer import analyze_node_source_imports
+        from swea_sentinel.core.rust_source_import_analyzer import analyze_rust_source_imports
 
         _, root = self._project(project_id)
         report = analyze_dependency_manifests(root, self.index_settings)
         python_import_report = analyze_python_imports(root, self.index_settings)
         node_import_report = analyze_node_source_imports(root, self.index_settings)
         go_import_report = analyze_go_source_imports(root, self.index_settings)
+        rust_import_report = analyze_rust_source_imports(root, self.index_settings)
         report["node_source_imports"] = node_import_report
         report["go_source_imports"] = go_import_report
+        report["rust_source_imports"] = rust_import_report
         report["limitations"] = [
             *report["limitations"],
             *node_import_report["limitations"],
             *go_import_report["limitations"],
+            *rust_import_report["limitations"],
         ]
         report["duration_ms"] = (
             int(report["duration_ms"])
             + int(node_import_report["duration_ms"])
             + int(go_import_report["duration_ms"])
+            + int(rust_import_report["duration_ms"])
         )
         assessment_id = str(uuid4())
         now = datetime.now(UTC).isoformat()
@@ -464,6 +469,17 @@ class ProjectService:
             )
             for source_path, digest in go_import_report["file_hashes"].items()
         )
+        evidence.extend(
+            Evidence(
+                kind="rust_source_imports",
+                description="Rust source file inspected for literal crate imports",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=source_path,
+                sha256=digest,
+            )
+            for source_path, digest in rust_import_report["file_hashes"].items()
+        )
         status = (
             ExecutionStatus.PARTIAL
             if (
@@ -471,6 +487,7 @@ class ProjectService:
                 or report["parse_errors"]
                 or node_import_report["truncated"]
                 or go_import_report["truncated"]
+                or rust_import_report["truncated"]
             )
             else ExecutionStatus.COMPLETED
         )
@@ -486,7 +503,7 @@ class ProjectService:
             conn.execute(
                 "DELETE FROM dependencies WHERE project_id = ? "
                 "AND (dependency_type LIKE 'manifest:%' OR dependency_type LIKE 'lockfile:%' "
-                "OR dependency_type IN ('python_package_graph', 'node_package_graph', 'go_package_graph'))",
+                "OR dependency_type IN ('python_package_graph', 'node_package_graph', 'go_package_graph', 'rust_package_graph'))",
                 (project_id,),
             )
             dependency_rows = [
@@ -555,6 +572,8 @@ class ProjectService:
                         if lockfile_format == "python"
                         else "node_package_graph"
                         if item["ecosystem"] == "node"
+                        else "rust_package_graph"
+                        if item["ecosystem"] == "rust"
                         else f"lockfile:{lockfile_format}:edge"
                     )
                     dependency_rows.append((
@@ -665,6 +684,35 @@ class ProjectService:
                     str(uuid4()), project_id,
                     import_edge["source"], longest_candidates[0][2],
                     "go_package_graph",
+                ))
+            # Rust crate names use underscores in source for hyphenated Cargo
+            # package names; accept only one normalized Cargo.lock candidate.
+            locked_rust_packages: list[tuple[str, str, str]] = []
+            for manifest_item in report["manifests"]:
+                if (
+                    manifest_item["ecosystem"] != "rust"
+                    or manifest_item["kind"] != "lockfile"
+                ):
+                    continue
+                lock_path = manifest_item["path"]
+                for package in manifest_item.get("locked_packages", []):
+                    locked_rust_packages.append((
+                        package["name"].replace("-", "_"),
+                        lock_path,
+                        f"{lock_path}#package:{package['name']}@{package['version']}",
+                    ))
+            for import_edge in rust_import_report["edges"]:
+                rust_candidates = [
+                    rust_candidate
+                    for rust_candidate in locked_rust_packages
+                    if rust_candidate[0] == import_edge["import_root"]
+                ]
+                if len(rust_candidates) != 1:
+                    continue
+                dependency_rows.append((
+                    str(uuid4()), project_id,
+                    import_edge["source"], rust_candidates[0][2],
+                    "rust_package_graph",
                 ))
             conn.executemany(
                 "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
