@@ -16,6 +16,15 @@ IGNORED_DIRS = {
     ".pytest_cache", ".next", ".turbo", "dist", "build", "coverage",
 }
 SUBPROCESS_FUNCTIONS = {"run", "call", "Popen", "check_call", "check_output"}
+SECRET_PATTERNS = (
+    re.compile(r"\\bAKIA[0-9A-Z]{16}\\b"),
+    re.compile(r"\\bgh[pousr]_[A-Za-z0-9]{30,}\\b"),
+    re.compile(r"\\bgithub_pat_[A-Za-z0-9_]{40,}\\b"),
+    re.compile(r"\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b"),
+    re.compile(r"\\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\\b"),
+    re.compile(r"\\bAIza[0-9A-Za-z_-]{35}\\b"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+)
 
 
 def _is_name(node: ast.expr | None, name: str) -> bool:
@@ -116,6 +125,26 @@ class _SecurityVisitor(ast.NodeVisitor):
             "message": message,
             "recommendation": recommendation,
         })
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str) and any(
+            pattern.search(node.value) for pattern in SECRET_PATTERNS
+        ):
+            self._add(
+                code="PYTHON_HARDCODED_CREDENTIAL",
+                severity="high",
+                confidence="HIGH_CONFIDENCE",
+                node=node,
+                message=(
+                    "A string literal matches a known credential or private-key "
+                    "format; the literal value is intentionally not included."
+                ),
+                recommendation=(
+                    "Remove the credential from source, load it from a secret manager "
+                    "or protected environment, and rotate it if it was real."
+                ),
+            )
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         function = node.func
@@ -332,10 +361,10 @@ def analyze_python_security(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "file_hashes": file_hashes,
         "limitations": [
-            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, and obvious dynamic SQL string construction.",
+            "Checks cover selected Python AST patterns only: dynamic code execution, shell command APIs, unsafe YAML loading, pickle deserialization, explicit TLS certificate-verification disabling, obvious dynamic SQL string construction, and selected known credential formats in string literals.",
             "The analyzer does not perform taint analysis, data-flow analysis, import alias resolution, or prove that SQL interpolation values are attacker-controlled.",
             "pickle findings are heuristic because exploitability depends on the trust boundary of the input.",
-            "The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
+            "Credential checks recognize selected token/key formats only; they do not detect arbitrary passwords, perform entropy analysis, or validate whether a credential is active. The analyzer does not inspect non-Python code, dependencies, runtime configuration, or deployed environments.",
             "No project code is imported or executed and no files are modified.",
         ],
     }
