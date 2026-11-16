@@ -6,7 +6,7 @@ SWEA Sentinel is an independent MCP service that adds an evidence-aware engineer
 
 - Strict, versioned Pydantic contracts: lifecycle states, 12 SWEA domains, severity, confidence, data origin, and qualification status.
 - Unknown evidence is never silently treated as verified; evidence defaults to UNKNOWN / REQUIRES_REVIEW.
-- SQLite persistence with WAL, foreign keys, ordered schema migrations, and governance-oriented tables.
+- SQLite persistence with WAL, foreign keys, ordered schema migrations, and governance-oriented tables; newly created database directories use owner-only permissions and database files are restricted to owner read/write on POSIX.
 - Per-tool execution records and audit events, including successful and failed tool invocations.
 - Project registration and bounded filesystem inventory (metadata and SHA-256 only; source contents are not stored or sent to external services).
 - MCP tools for project initialization, inventory analysis, architecture analysis, code-quality and security analysis, risk summaries, blast-radius checks, dependency-manifest discovery, contract analysis, context, status, and index refresh.
