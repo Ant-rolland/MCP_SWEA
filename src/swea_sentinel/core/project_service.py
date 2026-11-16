@@ -274,17 +274,21 @@ class ProjectService:
 
 
     def check_blast_radius(self, project_id: str, target_path: str) -> ToolResult:
-        """Return transitive local Python dependents of a project-relative file."""
+        """Return per-relation transitive dependents from persisted static dependency graphs.
+
+        Graph layers are traversed independently so equal identifiers from different
+        ecosystems cannot create accidental cross-ecosystem paths.
+        """
         self._project(project_id)
         normalized = PurePosixPath(target_path.replace("\\", "/"))
         if normalized.is_absolute() or ".." in normalized.parts or not normalized.parts:
-            raise ValueError("target_path must be a safe project-relative path")
+            raise ValueError("target_path must be a safe project-relative path or dependency identifier")
         target = normalized.as_posix()
 
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT source_path, target_name FROM dependencies "
-                "WHERE project_id = ? AND dependency_type = 'python_import'",
+                "SELECT source_path, target_name, dependency_type FROM dependencies "
+                "WHERE project_id = ?",
                 (project_id,),
             ).fetchall()
             evidence_rows = conn.execute(
@@ -293,26 +297,47 @@ class ProjectService:
                 (project_id,),
             ).fetchall()
 
-        reverse: dict[str, set[str]] = {}
-        known_nodes: set[str] = set()
+        graphs: dict[str, dict[str, set[str]]] = {}
+        known_by_type: dict[str, set[str]] = {}
         for row in rows:
+            relation = row["dependency_type"]
             source, dependency = row["source_path"], row["target_name"]
-            known_nodes.update((source, dependency))
+            reverse = graphs.setdefault(relation, {})
+            known = known_by_type.setdefault(relation, set())
+            known.update((source, dependency))
             reverse.setdefault(dependency, set()).add(source)
-        if target not in known_nodes:
-            raise ValueError(
-                "target_path is not present in the latest persisted Python dependency graph"
-            )
 
-        distances: dict[str, int] = {}
-        pending = deque([(target, 0)])
-        while pending:
-            current, distance = pending.popleft()
-            for dependent in sorted(reverse.get(current, set())):
-                if dependent == target or dependent in distances:
-                    continue
-                distances[dependent] = distance + 1
-                pending.append((dependent, distance + 1))
+        impact_by_relation: dict[str, dict[str, object]] = {}
+        evidence_paths: set[str] = set()
+        for relation in sorted(graphs):
+            if target not in known_by_type[relation]:
+                continue
+            distances: dict[str, int] = {}
+            pending = deque([(target, 0)])
+            while pending:
+                current, distance = pending.popleft()
+                for dependent in sorted(graphs[relation].get(current, set())):
+                    if dependent == target or dependent in distances:
+                        continue
+                    distances[dependent] = distance + 1
+                    pending.append((dependent, distance + 1))
+            if relation == "python_import":
+                evidence_paths.update(distances)
+            impact_by_relation[relation] = {
+                "direct_dependents": sorted(
+                    path for path, depth in distances.items() if depth == 1
+                ),
+                "transitive_dependents": [
+                    {"identifier": path, "distance": distances[path]}
+                    for path in sorted(distances, key=lambda item: (distances[item], item))
+                ],
+                "impact_count": len(distances),
+            }
+
+        if not impact_by_relation:
+            raise ValueError(
+                "target_path or dependency identifier is not present in any persisted dependency graph"
+            )
 
         evidence_by_path: dict[str, Evidence] = {}
         for row in evidence_rows:
@@ -324,29 +349,28 @@ class ProjectService:
                 evidence_by_path[item.source_path] = item
         evidence = [
             evidence_by_path[path]
-            for path in sorted(distances)
+            for path in sorted(evidence_paths)
             if path in evidence_by_path
         ]
-        direct = sorted(path for path, depth in distances.items() if depth == 1)
-        transitive = [
-            {"path": path, "distance": distances[path]}
-            for path in sorted(distances, key=lambda item: (distances[item], item))
-        ]
+        python_impact = impact_by_relation.get("python_import", {})
         return ToolResult(
             project_id=project_id,
             status=ExecutionStatus.PARTIAL,
             result={
-                "analysis_level": "static_python_import_blast_radius",
-                "target_path": target,
-                "direct_dependents": direct,
-                "transitive_dependents": transitive,
-                "impact_count": len(distances),
+                "analysis_level": "static_dependency_blast_radius",
+                "target_identifier": target,
+                "impact_by_relation": impact_by_relation,
+                "direct_dependents": python_impact.get("direct_dependents", []),
+                "transitive_dependents": python_impact.get("transitive_dependents", []),
+                "impact_count": python_impact.get("impact_count", 0),
             },
             evidence=evidence,
             limitations=[
-                "Impact is derived only from the most recently persisted Python static import graph.",
-                "Dynamic imports, runtime dependency injection, generated modules and non-Python references are not included.",
-                "A static dependency does not prove that the dependent code path executes at runtime.",
+                "Impact is calculated independently for each persisted dependency relation; graph layers are not joined across ecosystems.",
+                "Python imports and declared/locked package relationships are static observations, not proof of runtime use.",
+                "Manifest and lockfile edges describe package relationships; they do not identify which source files import or execute a package.",
+                "API/data contract references are not yet connected to source components, so contract impact is not included.",
+                "Dynamic imports, runtime dependency injection, generated modules and unresolved package identifiers are not inferred.",
             ],
         )
 
