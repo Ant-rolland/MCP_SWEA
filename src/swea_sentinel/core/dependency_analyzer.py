@@ -174,6 +174,67 @@ def _parse_npm_lockfile(content: bytes) -> dict[str, Any]:
             "locked_package_count": len(packages), "locked_dependency_edges": edges,
             "locked_dependency_edge_count": len(edges)}
 
+def _pnpm_package_name_version(package_key: str) -> tuple[str, str] | None:
+    """Split pnpm package snapshot keys, including scoped names and peer suffixes."""
+    key = package_key.lstrip("/")
+    if key.startswith("@"):
+        slash = key.find("/")
+        separator = key.find("@", slash + 1) if slash >= 0 else -1
+    else:
+        separator = key.find("@")
+    if separator <= 0:
+        return None
+    name = key[:separator]
+    version = key[separator + 1:].split("(", 1)[0]
+    return (name, version) if name and version else None
+
+
+def _parse_pnpm_lockfile(content: bytes) -> dict[str, Any]:
+    """Parse pnpm v5-v9 package/snapshot records without resolving external references."""
+    import yaml
+    data = yaml.safe_load(content.decode("utf-8-sig"))
+    if not isinstance(data, dict):
+        raise ValueError("pnpm lockfile root must be a mapping")
+    lock_version = str(data.get("lockfileVersion", ""))
+    if not re.match(r"^[0-9]+(?:\\.[0-9]+)?$", lock_version):
+        raise ValueError("unsupported pnpm lockfile version")
+    package_map = data.get("packages", {})
+    snapshots = data.get("snapshots", {})
+    if not isinstance(package_map, dict) or not isinstance(snapshots, dict):
+        raise ValueError("pnpm package and snapshot sections must be mappings")
+    records: dict[str, dict[str, str]] = {}
+    for key, metadata in package_map.items():
+        parsed = _pnpm_package_name_version(str(key))
+        if parsed is None:
+            continue
+        name, version = parsed
+        if isinstance(metadata, dict):
+            version = str(metadata.get("version") or version)
+        records[str(key)] = {"name": name, "version": version}
+    packages = [{"name": item["name"], "version": item["version"], "install_path": key}
+                for key, item in sorted(records.items())]
+    edges: list[dict[str, str]] = []
+    edge_source = snapshots if snapshots else package_map
+    for key, metadata in sorted(edge_source.items(), key=lambda item: str(item[0])):
+        if not isinstance(metadata, dict):
+            continue
+        source = records.get(str(key))
+        if source is None:
+            parsed = _pnpm_package_name_version(str(key))
+            if parsed is None:
+                continue
+            source = {"name": parsed[0], "version": parsed[1]}
+        for section in ("dependencies", "optionalDependencies"):
+            dependencies = metadata.get(section, {})
+            if isinstance(dependencies, dict):
+                for target_name in sorted(dependencies):
+                    edges.append({"source": source["name"], "target": str(target_name),
+                                  "source_install_path": str(key)})
+    return {"lockfile_version": lock_version, "locked_packages": packages,
+            "locked_package_count": len(packages), "locked_dependency_edges": edges,
+            "locked_dependency_edge_count": len(edges)}
+
+
 def _classify(name: str) -> tuple[str, str] | None:
     if name == "package.json":
         return "node", "manifest"
@@ -264,20 +325,16 @@ def analyze_dependency_manifests(
                         dependencies = _dependency_names(path, ecosystem, content)
                     elif ecosystem == "node" and path.name in {"package-lock.json", "npm-shrinkwrap.json"}:
                         lockfile_details = _parse_npm_lockfile(content)
+                    elif ecosystem == "node" and path.name == "pnpm-lock.yaml":
+                        lockfile_details = _parse_pnpm_lockfile(content)
+                    if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
-                        lockfile_truncated = (
-                            len(packages) > MAX_LOCKED_PACKAGES
-                            or len(edges) > MAX_LOCKED_EDGES
-                        )
+                        lockfile_truncated = (len(packages) > MAX_LOCKED_PACKAGES or len(edges) > MAX_LOCKED_EDGES)
                         lockfile_details["locked_packages"] = packages[:MAX_LOCKED_PACKAGES]
                         lockfile_details["locked_dependency_edges"] = edges[:MAX_LOCKED_EDGES]
-                        lockfile_details["locked_package_count"] = len(
-                            lockfile_details["locked_packages"]
-                        )
-                        lockfile_details["locked_dependency_edge_count"] = len(
-                            lockfile_details["locked_dependency_edges"]
-                        )
+                        lockfile_details["locked_package_count"] = len(lockfile_details["locked_packages"])
+                        lockfile_details["locked_dependency_edge_count"] = len(lockfile_details["locked_dependency_edges"])
                         lockfile_details["lockfile_truncated"] = lockfile_truncated
                 except (UnicodeDecodeError, ValueError, TypeError, ET.ParseError, RecursionError):
                     parse_error = "invalid_manifest" if kind == "manifest" else "invalid_lockfile"
@@ -311,7 +368,7 @@ def analyze_dependency_manifests(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Discovery is static and does not install packages, invoke package managers, or execute project code.",
-            "npm package-lock v1-v3 files expose locked package versions and declared lockfile edges; other lockfiles are identified and hashed but not expanded.",
+            "npm package-lock v1-v3 and pnpm lockfiles expose bounded locked package versions and dependency edges; other lockfiles are identified and hashed but not expanded.",
             "Gradle and Maven manifests are identified but dependency declarations are not yet parsed.",
             "Declared dependency names do not establish versions, reachability, vulnerability status, or runtime usage.",
             "Only the listed manifest formats are recognized; custom build systems may be missed.",
