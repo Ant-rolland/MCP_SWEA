@@ -328,3 +328,85 @@ def test_lockfile_edges_with_ambiguous_target_versions_are_not_linked(tmp_path):
             (registered.project_id,),
         ).fetchone()[0]
     assert edges == 0
+
+
+def test_python_imports_link_only_to_unique_normalized_locked_package(tmp_path):
+    project = tmp_path / "python-package-graph"
+    project.mkdir()
+    (project / "main.py").write_text("import requests\\n", encoding="utf-8")
+    (project / "pyproject.toml").write_text(
+        '[project]\\nname = "sample"\\nversion = "1.0.0"\\ndependencies = ["Requests>=2"]\\n',
+        encoding="utf-8",
+    )
+    (project / "poetry.lock").write_text(
+        """[[package]]
+name = "requests"
+version = "2.32.3"
+[package.dependencies]
+urllib3 = ">=1.21.1"
+
+[[package]]
+name = "urllib3"
+version = "2.2.3"
+""",
+        encoding="utf-8",
+    )
+    database = Database(tmp_path / "python-package-graph.sqlite")
+    service = ProjectService(database)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.status.value == "completed"
+    with database.connect() as conn:
+        edges = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? AND dependency_type = 'python_package_graph'",
+            (registered.project_id,),
+        ).fetchall()
+    stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in edges}
+    assert ("main.py", "poetry.lock#package:requests@2.32.3", "python_package_graph") in stored
+    assert (
+        "poetry.lock#package:requests@2.32.3",
+        "poetry.lock#package:urllib3@2.2.3",
+        "python_package_graph",
+    ) in stored
+
+    impact = service.check_blast_radius(
+        registered.project_id, "poetry.lock#package:urllib3@2.2.3"
+    )
+    graph = impact.result["impact_by_relation"]["python_package_graph"]
+    assert "poetry.lock#package:requests@2.32.3" in graph["direct_dependents"]
+    assert {
+        "identifier": "main.py",
+        "distance": 2,
+    } in graph["transitive_dependents"]
+
+
+def test_python_import_package_mapping_skips_ambiguous_locked_versions(tmp_path):
+    project = tmp_path / "ambiguous-python-package-graph"
+    project.mkdir()
+    (project / "main.py").write_text("import requests\\n", encoding="utf-8")
+    (project / "poetry.lock").write_text(
+        """[[package]]
+name = "requests"
+version = "2.31.0"
+
+[[package]]
+name = "requests"
+version = "2.32.3"
+""",
+        encoding="utf-8",
+    )
+    database = Database(tmp_path / "ambiguous-python-package-graph.sqlite")
+    service = ProjectService(database)
+    registered = service.initialize(str(project))
+    service.analyze_dependencies(registered.project_id)
+
+    with database.connect() as conn:
+        source_edges = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'python_package_graph' AND source_path = 'main.py'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert source_edges == 0
