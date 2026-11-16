@@ -726,7 +726,12 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
         "packages": [{
             "name": "vendor/library",
             "version": "2.1.0",
+            "require": {"psr/log": "^3"},
             "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+        }, {
+            "name": "psr/log",
+            "version": "3.0.0",
+            "autoload": {"psr-4": {"Psr\\\\Log\\\\": "src/"}},
         }],
         "packages-dev": [],
     }), encoding="utf-8")
@@ -752,10 +757,18 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
     ]
 
     impact = service.check_blast_radius(
-        registered.project_id, "composer.lock#package:vendor/library@2.1.0"
+        registered.project_id, "composer.lock#package:psr/log@3.0.0"
     )
     php_impact = impact.result["impact_by_relation"]["php_package_graph"]
-    assert php_impact["direct_dependents"] == ["app.php"]
+    assert php_impact["direct_dependents"] == [
+        "composer.lock#package:vendor/library@2.1.0"
+    ]
+    assert {
+        item["identifier"] for item in php_impact["transitive_dependents"]
+    } == {
+        "composer.lock#package:vendor/library@2.1.0",
+        "app.php",
+    }
 
 
 def test_php_source_import_attribution_skips_ambiguous_psr4_prefixes(tmp_path):
