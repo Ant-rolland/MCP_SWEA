@@ -347,7 +347,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
 
     openapi_contracts = [item for item in contracts if item["kind"] == "openapi"]
     route_report = discover_python_routes(root) if openapi_contracts else {
-        "routes": [], "files_scanned": 0, "bytes_scanned": 0,
+        "routes": [], "parse_errors": [], "files_scanned": 0, "bytes_scanned": 0,
         "truncated": False, "truncated_reason": None, "duration_ms": 0,
         "limitations": [],
     }
@@ -374,7 +374,9 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                 "confidence": "HIGH_CONFIDENCE" if len(candidates) == 1 else "UNKNOWN",
                 "sources": candidates,
                 "matching_rule": "exact_static_http_method_and_literal_path",
-                "route_scan_complete": not route_report["truncated"],
+                "route_scan_complete": (
+                    not route_report["truncated"] and not route_report["parse_errors"]
+                ),
                 "contract_discovery_complete": truncated_reason is None,
             })
     for contract in openapi_contracts:
@@ -392,7 +394,8 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         "ambiguous_operation_count": sum(item["mapping_status"] == "ambiguous" for item in source_mappings),
         "route_scan": {
             key: route_report[key] for key in (
-                "files_scanned", "bytes_scanned", "truncated", "truncated_reason", "duration_ms"
+                "files_scanned", "bytes_scanned", "parse_errors", "truncated",
+                "truncated_reason", "duration_ms"
             )
         },
         "contract_count": len(contracts),
@@ -419,6 +422,7 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
             "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",
             "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",
+            "Python files with syntax errors are recorded as route-scan parse errors; unmatched operations are not considered fully covered when any such file exists.",
             "No project code is executed and no files are modified.",
         ],
     }
