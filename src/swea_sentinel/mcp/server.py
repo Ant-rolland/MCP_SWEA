@@ -116,6 +116,17 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
 
 
     @mcp.tool()
+    @_audit_tool(database, "swea_assess_project")
+    def swea_assess_project(
+        project_id: str, refresh_index: bool = False
+    ) -> dict[str, Any]:
+        """Run all current bounded project analyses and return a consolidated risk summary."""
+        payload = ProjectReferenceInput(project_id=project_id)
+        return service.assess_project(
+            payload.project_id, refresh_index=refresh_index
+        ).model_dump(mode="json")
+
+    @mcp.tool()
     @_audit_tool(database, "swea_analyze_architecture")
     def swea_analyze_architecture(project_id: str) -> dict[str, Any]:
         """Build and persist a bounded static Python import graph for a registered project."""
