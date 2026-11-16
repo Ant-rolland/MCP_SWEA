@@ -88,6 +88,24 @@ class _QualityVisitor(ast.NodeVisitor):
         self._visit_function(node)
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if len(node.body) == 1 and (
+            isinstance(node.body[0], ast.Pass)
+            or (
+                isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and node.body[0].value.value is Ellipsis
+            )
+        ):
+            self._add(
+                code="PYTHON_SWALLOWED_EXCEPTION",
+                severity="medium",
+                line=node.lineno,
+                message="Exception handler ignores the caught exception without handling or reporting it.",
+                recommendation=(
+                    "Handle the expected failure explicitly, record useful context, "
+                    "or re-raise the exception."
+                ),
+            )
         if node.type is None:
             self._add(
                 code="PYTHON_BARE_EXCEPT",
@@ -188,7 +206,7 @@ def analyze_python_code_quality(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "file_hashes": file_hashes,
         "limitations": [
-            "Checks are limited to three explicit Python AST patterns: mutable defaults, bare except, and broad Exception/BaseException catches.",
+            "Checks are limited to explicit Python AST patterns: mutable defaults, bare except, broad Exception/BaseException catches, and exception handlers that only pass or use an ellipsis.",
             "This is not a complete linter, type checker, security audit, or proof of runtime behavior.",
             "Findings do not account for project-specific exception policies or intentional mutable defaults.",
             "Dynamic behavior and non-Python source files are not inspected.",
