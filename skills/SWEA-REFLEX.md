@@ -95,7 +95,7 @@ The current Python security checks also flag obvious dynamically assembled SQL s
 
 ### Code quality
 
-The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Import aliases and indirect wrappers are not resolved.
+The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Simple imported module/function aliases are resolved only when their names are not rebound anywhere in the file; general scope analysis and indirect wrappers are not resolved.
 
 The current Python checks cover only:
 - Mutable default arguments.
@@ -113,7 +113,7 @@ The current Python checks cover only:
 - `yaml.load` without an explicit SafeLoader and `yaml.unsafe_load`.
 - `pickle.load` and `pickle.loads`.
 
-The analyzer does not perform taint analysis, data-flow analysis, import-alias resolution, dependency vulnerability matching, secret scanning, or exploitability validation. Pickle findings are heuristic because risk depends on whether input is trusted.
+The analyzer does not perform taint analysis, data-flow analysis, general lexical-scope resolution, dependency vulnerability matching, generic secret scanning, or exploitability validation. Only selected known credential formats are detected. Pickle findings are heuristic because risk depends on whether input is trusted.
 
 ## Safety and deployment
 
