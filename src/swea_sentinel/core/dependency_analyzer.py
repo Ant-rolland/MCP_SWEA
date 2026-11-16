@@ -528,9 +528,9 @@ def _parse_composer_lockfile(content: bytes) -> dict[str, Any]:
             psr4 = autoload.get("psr-4", {}) if isinstance(autoload, dict) else {}
             if isinstance(psr4, dict):
                 for prefix, _paths in sorted(psr4.items()):
-                    if isinstance(prefix, str) and prefix.strip("\\\\"):
+                    if isinstance(prefix, str) and prefix.strip(chr(92)):
                         namespaces.append({
-                            "prefix": prefix.rstrip("\\\\"),
+                            "prefix": prefix.rstrip(chr(92)),
                             "package": name,
                             "version": version,
                             "install_path": install_path,
