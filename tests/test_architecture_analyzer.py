@@ -19,6 +19,10 @@ def test_static_import_graph_resolves_local_python_modules_and_externals(tmp_pat
     )
     assert "requests" in report["external_import_roots"]
     assert "json" not in report["external_import_roots"]
+    assert {
+        (edge["source"], edge["import_root"])
+        for edge in report["external_import_edges"]
+    } == {("app/main.py", "requests")}
     assert report["parse_errors"] == []
 
 
