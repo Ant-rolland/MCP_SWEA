@@ -294,7 +294,7 @@ class ProjectService:
             ).fetchall()
             evidence_rows = conn.execute(
                 "SELECT payload_json FROM evidence WHERE project_id = ? "
-                "AND kind = 'python_source_file'",
+                "AND kind IN ('python_source_file', 'python_route_source')",
                 (project_id,),
             ).fetchall()
 
@@ -322,7 +322,7 @@ class ProjectService:
                         continue
                     distances[dependent] = distance + 1
                     pending.append((dependent, distance + 1))
-            if relation == "python_import":
+            if relation in {"python_import", "api_contract_graph"}:
                 evidence_paths.update(distances)
             impact_by_relation[relation] = {
                 "direct_dependents": sorted(
@@ -373,7 +373,7 @@ class ProjectService:
                 "Impact is calculated independently for each persisted dependency relation; graph layers are not joined across ecosystems.",
                 "Python imports and declared/locked package relationships are static observations, not proof of runtime use.",
                 "Manifest and lockfile edges describe package relationships; they do not identify which source files import or execute a package.",
-                "API/data contract references are not yet connected to source components, so contract impact is not included.",
+                "API contract impact includes only unique exact matches to literal Python route decorators; dynamic routes, router-prefix composition, registration calls, and non-Python implementations remain unresolved.",
                 "Dynamic imports, runtime dependency injection, generated modules and unresolved package identifiers are not inferred.",
             ],
         )
@@ -706,6 +706,18 @@ class ProjectService:
             if report["truncated"] or findings
             else ExecutionStatus.COMPLETED
         )
+        contract_dependency_rows = [
+            (
+                str(uuid4()),
+                project_id,
+                source["source_path"],
+                f"{mapping['contract_path']}#operation:{mapping['method']} {mapping['path']}",
+                "api_contract_graph",
+            )
+            for mapping in report.get("source_mappings", [])
+            if mapping["mapping_status"] == "matched"
+            for source in mapping["sources"]
+        ]
         with self.db.connect() as conn:
             conn.execute(
                 "INSERT INTO assessments(assessment_id,project_id,task_id,domain,status,created_at,payload_json) "
@@ -714,6 +726,15 @@ class ProjectService:
                     assessment_id, project_id, None, SWEADomain.DATA_CONTRACTS.value,
                     status.value, now, json.dumps(report, separators=(",", ":")),
                 ),
+            )
+            conn.execute(
+                "DELETE FROM dependencies WHERE project_id = ? AND dependency_type = 'api_contract_graph'",
+                (project_id,),
+            )
+            conn.executemany(
+                "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
+                "VALUES(?,?,?,?,?)",
+                contract_dependency_rows,
             )
             conn.executemany(
                 "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
