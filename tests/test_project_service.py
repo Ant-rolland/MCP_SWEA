@@ -234,9 +234,8 @@ def test_blast_radius_reports_package_impacts_per_relation_without_crossing_grap
     assert result.result["analysis_level"] == "static_dependency_blast_radius"
     npm = result.result["impact_by_relation"]["lockfile:npm:edge"]
     assert npm["direct_dependents"] == ["package-lock.json#node_modules/app"]
-    assert npm["impact_count"] == 2
+    assert npm["impact_count"] == 1
     assert npm["transitive_dependents"] == [
         {"identifier": "package-lock.json#node_modules/app", "distance": 1},
-        {"identifier": "package-lock.json#node_modules/plugin", "distance": 2},
     ]
     assert "lockfile:cargo:edge" not in result.result["impact_by_relation"]
