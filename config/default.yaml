@@ -1,0 +1,28 @@
+version: "1.0"
+server:
+  name: "SWEA Sentinel"
+  transports:
+    stdio:
+      enabled: true
+    streamable_http:
+      enabled: true
+      host: "127.0.0.1"
+      port: 8765
+      remote_binding_allowed: false
+storage:
+  backend: sqlite
+  path: "~/.swea-sentinel/sentinel.db"
+  journal_mode: WAL
+  schema_version: 1
+project_index:
+  max_files: 20000
+  max_file_bytes: 2000000
+  max_total_bytes: 250000000
+  max_scan_seconds: 30
+  excluded_directories: [".git", ".venv", "venv", "node_modules", "__pycache__"]
+  follow_symlinks: false
+governance:
+  profile: govern
+  evidence_required: true
+  heuristic_is_not_proof: true
+  controlled_execution_enabled: false
