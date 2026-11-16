@@ -21,7 +21,7 @@ CONTEXTUAL_SECRET_PATTERNS = (
         r"""(?im)\b(?:aws_secret_access_key|aws_secret_key)\b["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})["']?"""
     ),
     re.compile(
-        r"""(?im)\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key)\b["']?\s*[:=]\s*["']?(?=[A-Za-z0-9_./+=-]{24,}["']?)(?=[A-Za-z0-9_./+=-]*[A-Z])(?=[A-Za-z0-9_./+=-]*[a-z])(?=[A-Za-z0-9_./+=-]*[0-9])[A-Za-z0-9_./+=-]{24,}["']?"""
+        r"""(?im)(?:^|[^A-Za-z0-9])[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key)\b["']?\s*[:=]\s*["']?(?=[A-Za-z0-9_./+=-]{24,}["']?)(?=[A-Za-z0-9_./+=-]*[A-Z])(?=[A-Za-z0-9_./+=-]*[a-z])(?=[A-Za-z0-9_./+=-]*[0-9])[A-Za-z0-9_./+=-]{24,}["']?"""
     ),
 )
 
