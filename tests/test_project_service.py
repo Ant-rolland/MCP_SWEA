@@ -713,3 +713,84 @@ def test_rust_source_import_attribution_skips_ambiguous_crate_versions(tmp_path)
             (registered.project_id,),
         ).fetchone()[0]
     assert count == 0
+
+
+def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
+    project = tmp_path / "php-source-graph"
+    project.mkdir()
+    (project / "composer.json").write_text(
+        json.dumps({"require": {"vendor/library": "^2"}}),
+        encoding="utf-8",
+    )
+    (project / "composer.lock").write_text(json.dumps({
+        "packages": [{
+            "name": "vendor/library",
+            "version": "2.1.0",
+            "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+        }],
+        "packages-dev": [],
+    }), encoding="utf-8")
+    (project / "app.php").write_text(
+        "<?php\nuse Vendor\\Library\\Client;\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["php_source_imports"]["edge_count"] == 1
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? AND dependency_type = 'php_package_graph'",
+            (registered.project_id,),
+        ).fetchall()
+    assert [(row["source_path"], row["target_name"]) for row in rows] == [
+        ("app.php", "composer.lock#package:vendor/library@2.1.0"),
+    ]
+
+    impact = service.check_blast_radius(
+        registered.project_id, "composer.lock#package:vendor/library@2.1.0"
+    )
+    php_impact = impact.result["impact_by_relation"]["php_package_graph"]
+    assert php_impact["direct_dependents"] == ["app.php"]
+
+
+def test_php_source_import_attribution_skips_ambiguous_psr4_prefixes(tmp_path):
+    project = tmp_path / "php-ambiguous-graph"
+    project.mkdir()
+    (project / "composer.lock").write_text(json.dumps({
+        "packages": [
+            {
+                "name": "vendor/library-a",
+                "version": "1.0.0",
+                "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+            },
+            {
+                "name": "vendor/library-b",
+                "version": "2.0.0",
+                "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+            },
+        ],
+        "packages-dev": [],
+    }), encoding="utf-8")
+    (project / "app.php").write_text(
+        "<?php\nuse Vendor\\Library\\Client;\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["php_source_imports"]["edge_count"] == 1
+    with db.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'php_package_graph' AND source_path = 'app.php'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert count == 0
