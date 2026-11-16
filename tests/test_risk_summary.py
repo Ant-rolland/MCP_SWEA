@@ -78,7 +78,7 @@ def test_risk_summary_returns_current_findings_and_their_evidence(tmp_path):
     assert summary.result["overall"]["open_finding_count"] == 1
     assert summary.result["overall"]["severity_counts"]["high"] == 1
     assert summary.findings[0].code == "PYTHON_SUBPROCESS_SHELL_TRUE"
-    assert summary.evidence[0].kind == "python_security_source"
+    assert summary.evidence[0].kind == "security_source_file"
 
 
 def test_risk_summary_marks_truncated_node_source_scan_as_incomplete(tmp_path):
