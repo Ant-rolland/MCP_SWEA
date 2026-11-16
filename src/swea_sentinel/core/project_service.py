@@ -37,10 +37,28 @@ IGNORED_DIRS = {
 
 class ProjectService:
     def __init__(
-        self, database: Database, index_settings: ProjectIndexSettings | None = None
+        self,
+        database: Database,
+        index_settings: ProjectIndexSettings | None = None,
+        *,
+        principal_id: str = "local-owner",
     ) -> None:
+        """Use a trusted process-supplied principal, never an MCP tool argument."""
         self.db = database
         self.index_settings = index_settings or ProjectIndexSettings()
+        self.principal_id = principal_id
+
+    def _require_workspace_role(self, workspace_id: str, roles: set[str]) -> None:
+        placeholders = ",".join("?" for _ in roles)
+        with self.db.connect() as conn:
+            membership = conn.execute(
+                "SELECT role FROM workspace_memberships "
+                f"WHERE workspace_id = ? AND principal_id = ? AND role IN ({placeholders})",
+                (workspace_id, self.principal_id, *sorted(roles)),
+            ).fetchone()
+        if membership is None:
+            raise PermissionError("Workspace access denied")
+
 
     @staticmethod
     def _safe_root(raw_path: str) -> Path:
@@ -50,6 +68,7 @@ class ProjectService:
         return root
 
     def initialize(self, raw_path: str, name: str | None = None) -> ToolResult:
+        self._require_workspace_role("local", {"owner", "maintainer"})
         root = self._safe_root(raw_path)
         project_id = str(uuid4())
         now = datetime.now(UTC).isoformat()
@@ -77,20 +96,36 @@ class ProjectService:
             limitations=["Project registration does not grant permission to modify project files."],
         )
 
-    def _project(self, project_id: str) -> tuple[Any, Path]:
+    def _project(
+        self, project_id: str, capability: str = "read"
+    ) -> tuple[Any, Path]:
+        allowed_roles = {
+            "read": {"owner", "maintainer", "analyst", "viewer"},
+            "analyze": {"owner", "maintainer", "analyst"},
+            "refresh": {"owner", "maintainer"},
+        }
+        if capability not in allowed_roles:
+            raise ValueError("Unknown project capability")
+        roles = sorted(allowed_roles[capability])
+        placeholders = ",".join("?" for _ in roles)
         with self.db.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM projects WHERE project_id = ?", (project_id,)
+                "SELECT p.* FROM projects AS p "
+                "JOIN workspace_memberships AS wm "
+                "ON wm.workspace_id = p.workspace_id "
+                "WHERE p.project_id = ? AND wm.principal_id = ? "
+                f"AND wm.role IN ({placeholders})",
+                (project_id, self.principal_id, *roles),
             ).fetchone()
         if row is None:
-            raise ValueError(f"Unknown project_id: {project_id}")
+            raise ValueError("Project not found or access denied")
         root = Path(row["root_path"]).resolve(strict=True)
         if not root.is_dir():
             raise ValueError("Registered project root is no longer an accessible directory")
         return row, root
 
     def refresh(self, project_id: str) -> ToolResult:
-        _, root = self._project(project_id)
+        _, root = self._project(project_id, "refresh")
         manifest: list[dict[str, str | int]] = []
         total_bytes = 0
         started = time.monotonic()
@@ -217,7 +252,7 @@ class ProjectService:
 
     def analyze_architecture(self, project_id: str) -> ToolResult:
         """Persist a bounded, read-only static Python import graph assessment."""
-        _, root = self._project(project_id)
+        _, root = self._project(project_id, "analyze")
         report = analyze_python_imports(root, self.index_settings)
         assessment_id = str(uuid4())
         now = datetime.now(UTC).isoformat()
@@ -289,7 +324,7 @@ class ProjectService:
         Graph layers are traversed independently so equal identifiers from different
         ecosystems cannot create accidental cross-ecosystem paths.
         """
-        self._project(project_id)
+        self._project(project_id, "read")
         normalized = PurePosixPath(target_path.replace("\\", "/"))
         if normalized.is_absolute() or ".." in normalized.parts or not normalized.parts:
             raise ValueError("target_path must be a safe project-relative path or dependency identifier")
