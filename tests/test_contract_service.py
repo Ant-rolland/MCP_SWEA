@@ -87,3 +87,28 @@ def test_contract_route_mapping_persists_contract_and_python_source_evidence(tmp
     contract_impact = impact.result["impact_by_relation"]["api_contract_graph"]
     assert contract_impact["direct_dependents"] == ["api.py"]
     assert impact.evidence[0].kind == "python_route_source"
+
+
+def test_contract_assessment_is_partial_when_python_route_scan_has_parse_errors(tmp_path):
+    project = tmp_path / "sample"
+    project.mkdir()
+    (project / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items": {
+                "get": {"responses": {"200": {"description": "ok"}}}
+            }
+        },
+    }), encoding="utf-8")
+    (project / "broken.py").write_text(
+        "@app.get('/items')\ndef broken(:\n", encoding="utf-8"
+    )
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    result = service.analyze_contracts(registered.project_id)
+
+    assert result.status.value == "partial"
+    assert result.result["route_scan"]["parse_errors"][0]["path"] == "broken.py"
+    assert result.result["source_mappings"][0]["route_scan_complete"] is False
