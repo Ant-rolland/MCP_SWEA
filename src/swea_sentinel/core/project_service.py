@@ -740,7 +740,7 @@ class ProjectService:
         )
 
     def get_risk_summary(self, project_id: str) -> ToolResult:
-        """Summarize open findings from the latest assessment in each domain."""
+        """Summarize the latest assessment per analysis type within each domain."""
         started = time.monotonic()
         self._project(project_id)
         with self.db.connect() as conn:
@@ -760,11 +760,25 @@ class ProjectService:
                 (project_id,),
             ).fetchall()
 
+        latest_by_analysis: dict[tuple[str, str], tuple[Any, dict[str, Any]]] = {}
         latest_by_domain: dict[str, Any] = {}
         for row in assessment_rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            analysis_level = payload.get("analysis_level")
+            if not isinstance(analysis_level, str) or not analysis_level:
+                analysis_level = "unspecified"
+            key = (row["domain"], analysis_level)
+            latest_by_analysis.setdefault(key, (row, payload))
             latest_by_domain.setdefault(row["domain"], row)
+
         latest_assessment_ids = {
-            row["assessment_id"] for row in latest_by_domain.values()
+            row["assessment_id"]
+            for row, _payload in latest_by_analysis.values()
         }
         findings: list[Finding] = []
         for row in finding_rows:
@@ -796,15 +810,12 @@ class ProjectService:
             counts["severity_counts"][finding.severity.value] += 1
             counts["confidence_counts"][finding.confidence.value] += 1
 
-        domains: list[dict[str, Any]] = []
-        incomplete_domains: list[str] = []
-        for domain, row in sorted(latest_by_domain.items()):
-            try:
-                payload = json.loads(row["payload_json"])
-            except (TypeError, ValueError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
+        analyses: list[dict[str, Any]] = []
+        incomplete_domains: set[str] = set()
+        domain_scan_states: dict[str, list[bool]] = {}
+        for (domain, analysis_level), (row, payload) in sorted(
+            latest_by_analysis.items()
+        ):
             route_scan = payload.get("route_scan", {})
             source_scans = [
                 payload.get("node_source_imports"),
@@ -829,8 +840,20 @@ class ProjectService:
                 )
                 or row["status"] == ExecutionStatus.FAILED.value
             )
+            domain_scan_states.setdefault(domain, []).append(scan_complete)
             if not scan_complete:
-                incomplete_domains.append(domain)
+                incomplete_domains.add(domain)
+            analyses.append({
+                "domain": domain,
+                "analysis_level": analysis_level,
+                "assessment_id": row["assessment_id"],
+                "assessment_status": row["status"],
+                "created_at": row["created_at"],
+                "scan_complete": scan_complete,
+            })
+
+        domains: list[dict[str, Any]] = []
+        for domain, latest_row in sorted(latest_by_domain.items()):
             counts = domain_counts.get(
                 domain,
                 {
@@ -839,12 +862,19 @@ class ProjectService:
                     "confidence_counts": {item.value: 0 for item in Confidence},
                 },
             )
+            domain_analyses = [
+                item for item in analyses if item["domain"] == domain
+            ]
             domains.append({
                 "domain": domain,
-                "assessment_id": row["assessment_id"],
-                "assessment_status": row["status"],
-                "created_at": row["created_at"],
-                "scan_complete": scan_complete,
+                "assessment_id": latest_row["assessment_id"],
+                "assessment_status": latest_row["status"],
+                "created_at": latest_row["created_at"],
+                "analysis_count": len(domain_analyses),
+                "analysis_levels": sorted(
+                    item["analysis_level"] for item in domain_analyses
+                ),
+                "scan_complete": all(domain_scan_states.get(domain, [])),
                 **counts,
             })
 
@@ -866,18 +896,20 @@ class ProjectService:
         domains_not_assessed = sorted(
             item.value for item in SWEADomain if item.value not in latest_by_domain
         )
+        incomplete_domain_list = sorted(incomplete_domains)
         status = (
             ExecutionStatus.PARTIAL
-            if not latest_by_domain or incomplete_domains
+            if not latest_by_analysis or incomplete_domain_list
             else ExecutionStatus.COMPLETED
         )
         return ToolResult(
             project_id=project_id,
             status=status,
             result={
-                "analysis_level": "latest_domain_risk_summary",
+                "analysis_level": "latest_assessment_by_domain_and_analysis_type",
                 "domains_assessed": len(domains),
-                "domains_incomplete": incomplete_domains,
+                "analyses_assessed": len(analyses),
+                "domains_incomplete": incomplete_domain_list,
                 "domains_not_assessed": domains_not_assessed,
                 "overall": {
                     "open_finding_count": len(findings),
@@ -885,11 +917,12 @@ class ProjectService:
                     "confidence_counts": confidence_counts,
                 },
                 "domains": domains,
+                "analyses": analyses,
             },
             findings=findings,
             evidence=evidence,
             limitations=[
-                "The summary includes only the latest assessment per domain; historical assessments are not aggregated.",
+                "The summary includes only the latest assessment for each analysis type within each domain; historical assessments are not aggregated.",
                 "Counts are descriptive, not a calibrated risk score or proof of exploitability.",
                 "A finding may be structurally valid while runtime impact remains unknown; inspect its confidence and evidence.",
                 "Domains without a recorded assessment are not treated as assessed.",
