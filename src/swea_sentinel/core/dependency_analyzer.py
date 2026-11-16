@@ -204,7 +204,7 @@ def _parse_pnpm_lockfile(content: bytes) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("pnpm lockfile root must be a mapping")
     lock_version = str(data.get("lockfileVersion", ""))
-    if not re.match(r"^[0-9]+(?:\\.[0-9]+)?$", lock_version):
+    if not re.match(r"^[0-9]+(?:\.[0-9]+)?$", lock_version):
         raise ValueError("unsupported pnpm lockfile version")
     package_map = data.get("packages", {})
     snapshots = data.get("snapshots", {})
