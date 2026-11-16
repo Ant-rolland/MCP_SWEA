@@ -72,6 +72,7 @@ def analyze_python_imports(
 
     local_edges: set[tuple[str, str, str]] = set()
     external_imports: set[str] = set()
+    external_import_edges: set[tuple[str, str, str]] = set()
     parse_errors: list[dict[str, str]] = []
     file_hashes: dict[str, str] = {}
 
@@ -129,6 +130,7 @@ def analyze_python_imports(
                     root_name = target.split(".")[0]
                     if not is_local_prefix and root_name not in sys.stdlib_module_names:
                         external_imports.add(root_name)
+                        external_import_edges.add((relative, root_name, target))
 
     adjacency: dict[str, set[str]] = {}
     reverse_adjacency: dict[str, set[str]] = {}
@@ -184,6 +186,10 @@ def analyze_python_imports(
             for source, target, imported in sorted(local_edges)
         ],
         "external_import_roots": sorted(external_imports),
+        "external_import_edges": [
+            {"source": source, "import_root": root_name, "import": imported}
+            for source, root_name, imported in sorted(external_import_edges)
+        ],
         "candidate_import_cycles": sorted(import_cycles),
         "parse_errors": parse_errors,
         "truncated": truncated_reason is not None,
