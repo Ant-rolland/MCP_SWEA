@@ -420,6 +420,10 @@ class ProjectService:
 
         node_import_report = analyze_node_source_imports(root, self.index_settings)
         report["node_source_imports"] = node_import_report
+        report["limitations"] = [
+            *report["limitations"],
+            *node_import_report["limitations"],
+        ]
         report["duration_ms"] = int(report["duration_ms"]) + int(
             node_import_report["duration_ms"]
         )
