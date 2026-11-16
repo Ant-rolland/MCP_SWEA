@@ -270,6 +270,18 @@ def test_parses_go_sum_versions_without_inventing_edges(tmp_path):
     assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
         ('example.com/lib', 'v1.2.3'), ('example.com/other', 'v2.0.0')}
     assert lock['locked_dependency_edges'] == []
+    checksums = {
+        (item["module"], item["version"]): item
+        for item in lock["checksum_records"]
+    }
+    assert checksums[("example.com/lib", "v1.2.3")] == {
+        "module": "example.com/lib",
+        "version": "v1.2.3",
+        "module_checksum": True,
+        "go_mod_checksum": True,
+    }
+    assert checksums[("example.com/other", "v2.0.0")]["go_mod_checksum"] is True
+    assert checksums[("example.com/other", "v2.0.0")]["module_checksum"] is False
 
 
 def test_parses_go_mod_module_requirements_as_declared_edges(tmp_path):
@@ -284,6 +296,13 @@ require (
 )
 require example.com/another v2.1.0
 """,
+        encoding="utf-8",
+    )
+    (tmp_path / "go.sum").write_text(
+        "example.com/lib v1.2.3 h1:module=\\n"
+        "example.com/lib v1.2.3/go.mod h1:gomod=\\n"
+        "example.com/indirect v0.8.0/go.mod h1:gomod-only=\\n"
+        "example.com/another v2.0.0 h1:older-version=\\n",
         encoding="utf-8",
     )
     report = analyze_dependency_manifests(tmp_path)
@@ -302,3 +321,21 @@ require example.com/another v2.1.0
         ("example.com/service", "example.com/indirect", "v0.8.0", True),
         ("example.com/service", "example.com/another", "v2.1.0", False),
     }
+    correlations = {
+        (item["module"], item["requested_version"]): item
+        for item in manifest["go_sum_correlations"]
+    }
+    assert correlations[("example.com/lib", "v1.2.3")]["checksum_status"] == (
+        "module_and_go_mod_checksums_present"
+    )
+    assert correlations[("example.com/indirect", "v0.8.0")]["checksum_status"] == (
+        "go_mod_checksum_only"
+    )
+    assert correlations[("example.com/another", "v2.1.0")]["checksum_status"] == (
+        "no_exact_checksum_record"
+    )
+    assert correlations[("example.com/another", "v2.1.0")]["other_checksum_versions"] == [
+        "v2.0.0"
+    ]
+    assert all(item["selected_version_determined"] is False for item in correlations.values())
+    assert manifest["go_sum_correlation_status"] == "checksum_presence_only"
