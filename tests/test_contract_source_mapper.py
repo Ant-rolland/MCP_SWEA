@@ -135,3 +135,62 @@ def test_nested_router_with_dynamic_mount_prefix_is_not_guessed(tmp_path):
     report = discover_python_routes(tmp_path)
 
     assert report["routes"] == []
+
+
+def test_maps_routes_through_literal_imported_fastapi_router(tmp_path):
+    app = tmp_path / "app"
+    routers = app / "routers"
+    routers.mkdir(parents=True)
+    (app / "main.py").write_text(
+        "from fastapi import FastAPI\n"
+        "from .routers.users import router as users_router\n"
+        "app = FastAPI()\n"
+        "app.include_router(users_router, prefix='/api')\n",
+        encoding="utf-8",
+    )
+    (routers / "users.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter(prefix='/users')\n"
+        "@router.get('/items')\n"
+        "def list_items():\n"
+        "    return []\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    assert any(
+        route["method"] == "GET"
+        and route["path"] == "/api/users/items"
+        and route["source_path"] == "app/routers/users.py"
+        for route in report["routes"]
+    )
+
+
+def test_cross_module_router_mount_with_dynamic_prefix_is_not_mapped(tmp_path):
+    app = tmp_path / "app"
+    routers = app / "routers"
+    routers.mkdir(parents=True)
+    (app / "main.py").write_text(
+        "from fastapi import FastAPI\n"
+        "from .routers.users import router as users_router\n"
+        "app = FastAPI()\n"
+        "app.include_router(users_router, prefix=runtime_prefix)\n",
+        encoding="utf-8",
+    )
+    (routers / "users.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter(prefix='/users')\n"
+        "@router.get('/items')\n"
+        "def list_items():\n"
+        "    return []\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    assert not any(
+        route["method"] == "GET"
+        and route["source_path"] == "app/routers/users.py"
+        for route in report["routes"]
+    )
