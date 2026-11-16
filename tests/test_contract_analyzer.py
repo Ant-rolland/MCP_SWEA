@@ -261,6 +261,7 @@ def test_contract_mapping_marks_truncated_route_scan_as_incomplete(tmp_path, mon
         "discover_python_routes",
         lambda root: {
             "routes": [],
+            "parse_errors": [],
             "files_scanned": 1,
             "bytes_scanned": 10,
             "truncated": True,
