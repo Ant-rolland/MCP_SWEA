@@ -307,6 +307,9 @@ def _cross_module_router_prefixes(
         name: paths[0] for name, paths in module_paths.items() if len(paths) == 1
     }
     external: dict[str, dict[str, list[str] | None]] = {}
+    pending_mounts: list[
+        tuple[tuple[str, str], tuple[str, str], str | None]
+    ] = []
 
     def import_base(module_name: str, path: str, node: ast.ImportFrom) -> str | None:
         if node.level == 0:
@@ -427,7 +430,16 @@ def _cross_module_router_prefixes(
             elif parent[0] == path:
                 parent_prefixes = routers.get(parent[1])
             else:
-                # Multi-hop imported parent routers require full project graph resolution.
+                prefix_node = next(
+                    (item.value for item in node.keywords if item.arg == "prefix"),
+                    None,
+                )
+                mount_prefix = (
+                    "" if prefix_node is None else _literal_path(prefix_node)
+                )
+                pending_mounts.append(
+                    (parent, (child_path, child_name), mount_prefix)
+                )
                 continue
 
             prefix_node = next(
@@ -451,6 +463,67 @@ def _cross_module_router_prefixes(
             if existing is None:
                 continue
             target[child_name] = sorted({*existing, *mounted})
+
+    # Resolve imported-parent mounts as a bounded fixed-point over the discovered
+    # router graph. Each edge is explicit syntax: parent.include_router(child).
+    # A parent must itself have a known application-relative mount before its
+    # child can be mapped; otherwise no local/base-prefix guess is emitted.
+    unresolved = list(pending_mounts)
+    for _ in range(len(pending_mounts) + 1):
+        if not unresolved:
+            break
+        remaining: list[
+            tuple[tuple[str, str], tuple[str, str], str | None]
+        ] = []
+        changed = False
+        for parent, child, mount_prefix in unresolved:
+            parent_path, parent_name = parent
+            child_path, child_name = child
+            parent_mapping = external.get(parent_path, {})
+            if parent_name not in parent_mapping:
+                remaining.append((parent, child, mount_prefix))
+                continue
+
+            target = external.setdefault(child_path, {})
+            if (
+                mount_prefix is None
+                or parent_mapping[parent_name] is None
+            ):
+                if target.get(child_name) is not None:
+                    target[child_name] = None
+                    changed = True
+                continue
+
+            child_prefixes = local_prefixes.get(child_path, {}).get(child_name)
+            if child_name not in local_prefixes.get(child_path, {}):
+                continue
+            if child_prefixes is None:
+                if target.get(child_name) is not None:
+                    target[child_name] = None
+                    changed = True
+                continue
+
+            mounted = sorted({
+                _join_paths(parent_prefix, mount_prefix, child_prefix)
+                for parent_prefix in parent_mapping[parent_name] or []
+                for child_prefix in child_prefixes
+            })
+            existing = target.get(child_name, [])
+            if existing is None:
+                continue
+            combined = sorted({*existing, *mounted})
+            if combined != existing:
+                target[child_name] = combined
+                changed = True
+        unresolved = remaining
+        if not changed:
+            break
+
+    # An imported-parent edge whose parent cannot be resolved is intentionally
+    # marked unresolved, rather than falling back to a guessed local prefix.
+    for _parent, child, _mount_prefix in unresolved:
+        child_path, child_name = child
+        external.setdefault(child_path, {})[child_name] = None
 
     return external
 
