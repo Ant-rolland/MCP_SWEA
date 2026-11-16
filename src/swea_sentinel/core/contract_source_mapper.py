@@ -32,7 +32,83 @@ def _literal_methods(value: ast.expr) -> list[str] | None:
     return sorted(set(methods))
 
 
-def _decorator_routes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict[str, Any]]:
+def _literal_path(value: ast.expr | None) -> str | None:
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        if value.value == "" or value.value.startswith("/"):
+            return value.value
+    return None
+
+
+def _join_paths(*parts: str) -> str:
+    segments = [part.strip("/") for part in parts if part.strip("/")]
+    return "/" + "/".join(segments) if segments else "/"
+
+
+def _router_prefixes(tree: ast.Module) -> dict[str, list[str] | None]:
+    """Resolve literal APIRouter prefixes and literal include_router mounts per file."""
+    router_bases: dict[str, str | None] = {}
+    mounts: dict[str, list[str]] = {}
+    invalid_mounts: set[str] = set()
+
+    for statement in tree.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(statement, ast.Assign):
+            targets = statement.targets
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+            value = statement.value
+        if not isinstance(value, ast.Call):
+            continue
+        is_router = (
+            isinstance(value.func, ast.Name) and value.func.id == "APIRouter"
+        ) or (
+            isinstance(value.func, ast.Attribute) and value.func.attr == "APIRouter"
+        )
+        if not is_router:
+            continue
+        prefix_node = next(
+            (item.value for item in value.keywords if item.arg == "prefix"), None
+        )
+        prefix = "" if prefix_node is None else _literal_path(prefix_node)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                router_bases[target.id] = prefix
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "include_router" or not node.args:
+            continue
+        router_arg = node.args[0]
+        if not isinstance(router_arg, ast.Name) or router_arg.id not in router_bases:
+            continue
+        prefix_node = next(
+            (item.value for item in node.keywords if item.arg == "prefix"), None
+        )
+        mount_prefix = "" if prefix_node is None else _literal_path(prefix_node)
+        if mount_prefix is None:
+            invalid_mounts.add(router_arg.id)
+            continue
+        mounts.setdefault(router_arg.id, []).append(mount_prefix)
+
+    resolved: dict[str, list[str] | None] = {}
+    for name, base_prefix in router_bases.items():
+        if base_prefix is None or name in invalid_mounts:
+            resolved[name] = None
+            continue
+        mount_prefixes = mounts.get(name, [""])
+        resolved[name] = sorted({
+            _join_paths(mount, base_prefix) for mount in mount_prefixes
+        })
+    return resolved
+
+
+def _decorator_routes(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    router_prefixes: dict[str, list[str] | None],
+) -> list[dict[str, Any]]:
     routes: list[dict[str, Any]] = []
     for decorator in node.decorator_list:
         if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
@@ -61,15 +137,24 @@ def _decorator_routes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict
         else:
             continue
 
+        router_name = (
+            decorator.func.value.id
+            if isinstance(decorator.func.value, ast.Name)
+            else None
+        )
+        prefixes = router_prefixes.get(router_name, [""]) if router_name else [""]
+        if prefixes is None:
+            continue
         for method in methods:
-            routes.append({
-                "method": method,
-                "path": route,
-                "source_path": "",
-                "function": node.name,
-                "line": node.lineno,
-                "framework_pattern": name,
-            })
+            for prefix in prefixes:
+                routes.append({
+                    "method": method,
+                    "path": _join_paths(prefix, route),
+                    "source_path": "",
+                    "function": node.name,
+                    "line": node.lineno,
+                    "framework_pattern": name,
+                })
     return routes
 
 
@@ -133,9 +218,10 @@ def discover_python_routes(
                 continue
 
             relative = path.relative_to(root).as_posix()
+            router_prefixes = _router_prefixes(tree)
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    for route in _decorator_routes(node):
+                    for route in _decorator_routes(node, router_prefixes):
                         route["source_path"] = relative
                         route["sha256"] = digest
                         routes.append(route)
@@ -159,7 +245,7 @@ def discover_python_routes(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Only literal route paths and statically literal HTTP methods in Python decorators are recognized.",
-            "Dynamic route expressions, router prefix composition, framework registration calls, and non-Python routes are not resolved.",
+            "Dynamic route expressions, dynamic router prefixes, cross-module router mounts, framework registration calls, and non-Python routes are not resolved. Literal APIRouter prefixes and include_router prefixes are composed only within one Python file.",
             "Route declarations are structural evidence, not proof that a route is registered or reachable at runtime.",
             "Project code is parsed as syntax only; it is never imported or executed.",
         ],
