@@ -17,11 +17,11 @@ IGNORED_DIRS = {
 SUBPROCESS_FUNCTIONS = {"run", "call", "Popen", "check_call", "check_output"}
 
 
-def _is_name(node: ast.expr, name: str) -> bool:
+def _is_name(node: ast.expr | None, name: str) -> bool:
     return isinstance(node, ast.Name) and node.id == name
 
 
-def _is_attribute(node: ast.expr, owner: str, attribute: str) -> bool:
+def _is_attribute(node: ast.expr | None, owner: str, attribute: str) -> bool:
     return (
         isinstance(node, ast.Attribute)
         and node.attr == attribute
@@ -40,7 +40,7 @@ def _literal_true(node: ast.expr | None) -> bool:
 def _safe_yaml_loader(node: ast.expr | None) -> bool:
     return (
         isinstance(node, ast.Attribute)
-        and node.attr == "SafeLoader"
+        and node.attr in {"SafeLoader", "CSafeLoader"}
         and _is_name(node.value, "yaml")
     ) or _is_name(node, "SafeLoader")
 
