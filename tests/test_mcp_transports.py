@@ -26,6 +26,7 @@ EXPECTED_TOOLS = {
     "swea_analyze_project",
     "swea_analyze_architecture",
     "swea_analyze_code_quality",
+    "swea_analyze_security",
     "swea_analyze_contracts",
     "swea_analyze_dependencies",
     "swea_check_blast_radius",
