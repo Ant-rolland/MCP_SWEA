@@ -1,6 +1,7 @@
 """SQLite schema and connection management."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -137,7 +138,16 @@ MIGRATIONS: dict[int, str] = {1: DDL}
 class Database:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # SQLite files can contain project paths, findings, and audit metadata.
+        # Create/restrict the database before SQLite opens it so a permissive
+        # process umask cannot expose the file to other local users.
+        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if os.name == "posix":
+                os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
         self._initialize()
 
     @contextmanager
