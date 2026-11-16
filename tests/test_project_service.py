@@ -182,6 +182,19 @@ def test_dependency_analysis_persists_go_declarations_and_non_node_lockfiles(tmp
     assert ("go.mod#example.com/service", "example.com/helper@v0.8.0", "manifest:go:edge") in stored
     assert ("go.sum#package:example.com/lib@v1.2.3", "go.sum#package:example.com/lib@v1.2.3", "lockfile:go:package") in stored
     assert ("go.sum#package:example.com/helper@v0.8.0", "go.sum#package:example.com/helper@v0.8.0", "lockfile:go:package") in stored
+    go_mod_report = next(
+        item for item in result.result["manifests"] if item["path"] == "go.mod"
+    )
+    checksum_statuses = {
+        (item["module"], item["requested_version"]): item["checksum_status"]
+        for item in go_mod_report["go_sum_correlations"]
+    }
+    assert checksum_statuses[("example.com/lib", "v1.2.3")] == "module_checksum_only"
+    assert checksum_statuses[("example.com/helper", "v0.8.0")] == "go_mod_checksum_only"
+    assert all(
+        item["selected_version_determined"] is False
+        for item in go_mod_report["go_sum_correlations"]
+    )
 
 
 def test_dependency_analysis_persists_python_and_cargo_lockfiles(tmp_path):
