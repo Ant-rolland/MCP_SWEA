@@ -727,7 +727,7 @@ def test_php_source_imports_link_to_unique_composer_psr4_package(tmp_path):
             "name": "vendor/library",
             "version": "2.1.0",
             "require": {"psr/log": "^3"},
-            "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+            "autoload": {"psr-4": {"Vendor\\Library\\": "src/"}},
         }, {
             "name": "psr/log",
             "version": "3.0.0",
@@ -779,12 +779,12 @@ def test_php_source_import_attribution_skips_ambiguous_psr4_prefixes(tmp_path):
             {
                 "name": "vendor/library-a",
                 "version": "1.0.0",
-                "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+                "autoload": {"psr-4": {"Vendor\\Library\\": "src/"}},
             },
             {
                 "name": "vendor/library-b",
                 "version": "2.0.0",
-                "autoload": {"psr-4": {"Vendor\\\\Library\\\\": "src/"}},
+                "autoload": {"psr-4": {"Vendor\\Library\\": "src/"}},
             },
         ],
         "packages-dev": [],
