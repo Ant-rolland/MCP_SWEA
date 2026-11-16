@@ -16,6 +16,12 @@ IGNORED_DIRS = {
     ".pytest_cache", ".next", ".turbo", "dist", "build", "coverage",
 }
 SUBPROCESS_FUNCTIONS = {"run", "call", "Popen", "check_call", "check_output"}
+CONTEXTUAL_SECRET_PATTERNS = (
+    re.compile(
+        r"""(?im)\\b(?:aws_secret_access_key|aws_secret_key)\\b["']?\\s*[:=]\\s*["']?([A-Za-z0-9/+=]{40})["']?"""
+    ),
+)
+
 SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
@@ -653,7 +659,7 @@ def _scan_project_secret_formats(
             relative = path.relative_to(root).as_posix()
             matched = False
             seen_lines: set[tuple[int, int]] = set()
-            for pattern_index, pattern in enumerate(SECRET_PATTERNS):
+            for pattern_index, pattern in enumerate((*SECRET_PATTERNS, *CONTEXTUAL_SECRET_PATTERNS)):
                 for match in pattern.finditer(text):
                     line_number = text.count("\n", 0, match.start()) + 1
                     marker = (pattern_index, line_number)
