@@ -69,8 +69,8 @@ Evidence records include a source path and SHA-256 hash where available. Source 
 
 - Contract discovery is bounded to JSON/YAML documents resembling OpenAPI or JSON Schema.
 - External references are not fetched. Structural discovery is not full specification validation.
-- Python source mapping recognizes literal HTTP method/path decorators only when both method and path match exactly.
-- Duplicate route matches are ambiguous; dynamic paths, router-prefix composition, registration calls, and non-Python implementations are not inferred.
+- Python source mapping recognizes literal HTTP method/path decorators only when both method and path match exactly. Literal FastAPI `APIRouter(prefix=...)` and same-file `include_router(..., prefix=...)` prefixes are composed.
+- Duplicate route matches are ambiguous; dynamic paths or prefixes, cross-module router mounts, other registration calls, and non-Python implementations are not inferred.
 - If route scanning is truncated or Python syntax errors occur, unmatched mappings are incomplete, not proof that no implementation exists.
 - Exact unique contract-to-route matches are persisted as a separate blast-radius relation.
 
