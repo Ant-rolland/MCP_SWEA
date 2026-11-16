@@ -124,8 +124,8 @@ def _collect_scope_import_aliases(
                     resolved_module = (
                         item.name if item.asname else item.name.split(".")[0]
                     )
-                    previous = module_aliases.get(bound_name)
-                    if previous is not None and previous != resolved_module:
+                    previous_module = module_aliases.get(bound_name)
+                    if previous_module is not None and previous_module != resolved_module:
                         ambiguous_names.add(bound_name)
                     module_aliases[bound_name] = resolved_module
             elif isinstance(child, ast.ImportFrom) and child.module:
@@ -134,8 +134,8 @@ def _collect_scope_import_aliases(
                         continue
                     bound_name = item.asname or item.name
                     resolved = (child.module, item.name)
-                    previous = function_aliases.get(bound_name)
-                    if previous is not None and previous != resolved:
+                    previous_function = function_aliases.get(bound_name)
+                    if previous_function is not None and previous_function != resolved:
                         ambiguous_names.add(bound_name)
                     function_aliases[bound_name] = resolved
             elif isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
@@ -252,7 +252,9 @@ class _SecurityVisitor(ast.NodeVisitor):
             self.visit(statement)
         self.module_aliases, self.function_aliases = previous
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+    def _visit_function_scope(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in [*node.args.defaults, *node.args.kw_defaults]:
@@ -271,8 +273,11 @@ class _SecurityVisitor(ast.NodeVisitor):
             self.visit(node.returns)
         self._visit_scope_body(node, node.body)
 
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function_scope(node)
+
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self.visit_FunctionDef(node)
+        self._visit_function_scope(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         for decorator in node.decorator_list:
