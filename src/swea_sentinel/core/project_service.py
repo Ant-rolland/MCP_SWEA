@@ -786,7 +786,7 @@ class ProjectService:
 
         status = (
             ExecutionStatus.PARTIAL
-            if report["truncated"] or findings
+            if report["truncated"] or report["route_scan"]["parse_errors"] or findings
             else ExecutionStatus.COMPLETED
         )
         contract_dependency_rows = [
