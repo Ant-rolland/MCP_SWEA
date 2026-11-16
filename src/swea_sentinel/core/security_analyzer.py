@@ -174,19 +174,18 @@ def _safe_yaml_loader(
     module_aliases: dict[str, str],
     function_aliases: dict[str, tuple[str, str]],
 ) -> bool:
-    if isinstance(node, ast.Attribute) and node.attr in {"SafeLoader", "CSafeLoader"}:
-        if (
-            isinstance(node.value, ast.Name)
-            and module_aliases.get(node.value.id) == "yaml"
-        ):
-            return True
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr in {"SafeLoader", "CSafeLoader"}
+        and isinstance(node.value, ast.Name)
+        and module_aliases.get(node.value.id) == "yaml"
+    ):
+        return True
     return (
-        (
-            isinstance(node, ast.Name)
-            and function_aliases.get(node.id) in {
-                ("yaml", "SafeLoader"), ("yaml", "CSafeLoader")
-            }
-        )
+        isinstance(node, ast.Name)
+        and function_aliases.get(node.id) in {
+            ("yaml", "SafeLoader"), ("yaml", "CSafeLoader")
+        }
     )
 
 
