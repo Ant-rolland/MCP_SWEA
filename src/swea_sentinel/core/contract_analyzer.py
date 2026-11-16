@@ -374,6 +374,8 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                 "confidence": "HIGH_CONFIDENCE" if len(candidates) == 1 else "UNKNOWN",
                 "sources": candidates,
                 "matching_rule": "exact_static_http_method_and_literal_path",
+                "route_scan_complete": not route_report["truncated"],
+                "contract_discovery_complete": truncated_reason is None,
             })
     for contract in openapi_contracts:
         contract["source_mapping_count"] = sum(
