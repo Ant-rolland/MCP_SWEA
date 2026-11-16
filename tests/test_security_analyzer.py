@@ -338,3 +338,28 @@ def test_detects_context_labelled_api_tokens_in_config_files(tmp_path):
         for secret in (api_key, access_token)
     )
 
+def test_contextual_python_credentials_require_credential_names_and_mixed_values(tmp_path):
+    api_key = "AbC123" * 5
+    access_token = "XyZ789" * 5
+    (tmp_path / "settings.py").write_text(
+        f'PAYMENTS_API_KEY = "{api_key}"\n'
+        f'client.access_token: str = "{access_token}"\n'
+        'example_api_key = "replace-with-your-api-key"\n'
+        f'random_value = "{api_key}"\n',
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_HARDCODED_CREDENTIAL"
+    ]
+
+    assert len(findings) == 2
+    assert {item["confidence"] for item in findings} == {"MEDIUM_CONFIDENCE"}
+    assert all(
+        secret not in item["message"]
+        for item in findings
+        for secret in (api_key, access_token)
+    )
+
