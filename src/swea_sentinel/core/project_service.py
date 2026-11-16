@@ -806,9 +806,23 @@ class ProjectService:
             if not isinstance(payload, dict):
                 payload = {}
             route_scan = payload.get("route_scan", {})
+            source_scans = [
+                payload.get("node_source_imports"),
+                payload.get("go_source_imports"),
+                payload.get("rust_source_imports"),
+            ]
+            source_scan_incomplete = any(
+                isinstance(source_scan, dict)
+                and (
+                    source_scan.get("truncated", False)
+                    or source_scan.get("parse_errors")
+                )
+                for source_scan in source_scans
+            )
             scan_complete = not (
                 payload.get("truncated", False)
                 or payload.get("parse_errors")
+                or source_scan_incomplete
                 or (
                     isinstance(route_scan, dict)
                     and route_scan.get("parse_errors")
