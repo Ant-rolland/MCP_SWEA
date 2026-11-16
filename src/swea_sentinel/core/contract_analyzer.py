@@ -1,6 +1,7 @@
 """Bounded, read-only discovery and structural checks for API/data contracts."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from swea_sentinel.core.contract_source_mapper import discover_python_routes
 
 CONTRACT_SUFFIXES = {".json", ".yaml", ".yml"}
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
@@ -318,6 +321,15 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
                     "reference_count": len(refs),
                     "unresolved_local_refs": unresolved_refs,
                     "sha256": digest,
+                    "operations": [
+                        {
+                            "method": method.upper(),
+                            "path": route,
+                            "operation_id": operation.get("operationId")
+                            if isinstance(operation.get("operationId"), str) else None,
+                        }
+                        for route, method, operation in operations
+                    ],
                 })
             elif _is_json_schema(document):
                 refs = _walk_refs(document)
@@ -334,9 +346,54 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
         if truncated_reason:
             break
 
+    openapi_contracts = [item for item in contracts if item["kind"] == "openapi"]
+    route_report = discover_python_routes(root) if openapi_contracts else {
+        "routes": [], "files_scanned": 0, "bytes_scanned": 0,
+        "truncated": False, "truncated_reason": None, "duration_ms": 0,
+        "limitations": [],
+    }
+    routes_by_signature: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for route_item in route_report["routes"]:
+        routes_by_signature.setdefault(
+            (route_item["method"], route_item["path"]), []
+        ).append(route_item)
+    source_mappings: list[dict[str, Any]] = []
+    for contract in openapi_contracts:
+        for operation in contract.get("operations", []):
+            candidates = routes_by_signature.get(
+                (operation["method"], operation["path"]), []
+            )
+            source_mappings.append({
+                "contract_path": contract["path"],
+                "method": operation["method"],
+                "path": operation["path"],
+                "operation_id": operation["operation_id"],
+                "mapping_status": (
+                    "matched" if len(candidates) == 1 else
+                    "ambiguous" if len(candidates) > 1 else "unmapped"
+                ),
+                "confidence": "HIGH_CONFIDENCE" if len(candidates) == 1 else "UNKNOWN",
+                "sources": candidates,
+                "matching_rule": "exact_static_http_method_and_literal_path",
+            })
+    for contract in openapi_contracts:
+        contract["source_mapping_count"] = sum(
+            item["contract_path"] == contract["path"]
+            and item["mapping_status"] == "matched"
+            for item in source_mappings
+        )
     return {
         "analysis_level": "static_api_data_contract_discovery",
         "contracts": contracts,
+        "source_mappings": source_mappings,
+        "source_mapping_count": sum(item["mapping_status"] == "matched" for item in source_mappings),
+        "unmapped_operation_count": sum(item["mapping_status"] == "unmapped" for item in source_mappings),
+        "ambiguous_operation_count": sum(item["mapping_status"] == "ambiguous" for item in source_mappings),
+        "route_scan": {
+            key: route_report[key] for key in (
+                "files_scanned", "bytes_scanned", "truncated", "truncated_reason", "duration_ms"
+            )
+        },
         "contract_count": len(contracts),
         "openapi_count": sum(item["kind"] == "openapi" for item in contracts),
         "json_schema_count": sum(item["kind"] == "json_schema" for item in contracts),
@@ -354,6 +411,8 @@ def analyze_contracts(root: Path) -> dict[str, Any]:
             "Path-parameter checks cover inline definitions; operations using parameter $ref entries are skipped rather than guessed.",
             "Response checks verify the responses object and inline descriptions; response $ref targets are not expanded.",
             "This is structural discovery, not full OpenAPI/JSON Schema specification validation.",
-            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",\n            "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",\n            "No project code is executed and no files are modified.",
+            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",\n            "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",\n            "Python source mapping requires an exact HTTP-method and literal-path match between OpenAPI operations and recognized Python route decorators; dynamic paths and router-prefix composition are not inferred.",
+            "Multiple matching Python route declarations are reported as ambiguous; no single implementation is selected.",
+            "No project code is executed and no files are modified.",
         ],
     }
