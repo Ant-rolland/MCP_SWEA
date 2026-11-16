@@ -560,6 +560,89 @@ class ProjectService:
             duration_ms=int(report["duration_ms"]),
         )
 
+    def analyze_security(self, project_id: str) -> ToolResult:
+        """Run bounded, read-only Python security pattern checks and persist evidence."""
+        from swea_sentinel.core.security_analyzer import analyze_python_security
+
+        _, root = self._project(project_id)
+        report = analyze_python_security(root, self.index_settings)
+        assessment_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        evidence_by_path = {
+            relative: Evidence(
+                kind="python_security_source",
+                description="Python source file inspected by static security pattern checks",
+                origin=DataOrigin.VERIFIED_SOURCE,
+                qualification=QualificationStatus.QUALIFIED,
+                source_path=relative,
+                sha256=digest,
+            )
+            for relative, digest in report["file_hashes"].items()
+        }
+        evidence = list(evidence_by_path.values())
+        findings = [
+            Finding(
+                domain=SWEADomain.SECURITY,
+                code=item["code"],
+                severity=Severity(item["severity"]),
+                confidence=Confidence(item["confidence"]),
+                title=item["message"][:300],
+                location=f"{item['path']}:{item['line']}",
+                evidence_ids=(
+                    [evidence_by_path[item["path"]].evidence_id]
+                    if item["path"] in evidence_by_path else []
+                ),
+                recommendation=item["recommendation"],
+                status=FindingStatus.OPEN,
+            )
+            for item in report["findings"]
+        ]
+        status = (
+            ExecutionStatus.PARTIAL
+            if report["truncated"] or report["parse_errors"] or findings
+            else ExecutionStatus.COMPLETED
+        )
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO assessments(assessment_id,project_id,task_id,domain,status,created_at,payload_json) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    assessment_id, project_id, None, SWEADomain.SECURITY.value,
+                    status.value, now, json.dumps(report, separators=(",", ":")),
+                ),
+            )
+            conn.executemany(
+                "INSERT INTO evidence(evidence_id,project_id,kind,sha256,payload_json,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        item.evidence_id, project_id, item.kind, item.sha256,
+                        item.model_dump_json(), now,
+                    )
+                    for item in evidence
+                ],
+            )
+            for finding in findings:
+                conn.execute(
+                    "INSERT INTO findings(finding_id,project_id,assessment_id,domain,code,severity,confidence,status,payload_json) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        finding.finding_id, project_id, assessment_id,
+                        finding.domain.value, finding.code, finding.severity.value,
+                        finding.confidence.value, finding.status.value,
+                        finding.model_dump_json(),
+                    ),
+                )
+        return ToolResult(
+            project_id=project_id,
+            status=status,
+            result={"assessment_id": assessment_id, **report},
+            findings=findings,
+            evidence=evidence,
+            limitations=list(report["limitations"]),
+            duration_ms=int(report["duration_ms"]),
+        )
+
     def analyze_code_quality(self, project_id: str) -> ToolResult:
         """Run bounded, read-only Python code-quality checks and persist evidence."""
         from swea_sentinel.core.code_quality_analyzer import analyze_python_code_quality
