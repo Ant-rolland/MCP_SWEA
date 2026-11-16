@@ -47,3 +47,32 @@ def test_security_scan_reports_parse_errors_and_respects_file_limit(tmp_path):
     assert report["parse_errors"][0]["path"] == "a.py"
     assert report["truncated"] is True
     assert report["truncated_reason"] == "maximum_file_count"
+
+
+def test_detects_explicit_tls_certificate_verification_disabling(tmp_path):
+    (tmp_path / "tls.py").write_text(
+        "import ssl, requests, httpx\n"
+        "requests.get(url, verify=False)\n"
+        "httpx.Client(verify=False)\n"
+        "ssl._create_unverified_context()\n"
+        "requests.get(url, verify=True)\n"
+        "httpx.get(url)\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] in {
+            "PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
+            "PYTHON_TLS_UNVERIFIED_SSL_CONTEXT",
+        }
+    ]
+    assert len(findings) == 3
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert {item["code"] for item in findings} == {
+        "PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
+        "PYTHON_TLS_UNVERIFIED_SSL_CONTEXT",
+    }
