@@ -54,3 +54,16 @@ def test_database_file_is_created_with_owner_only_permissions(tmp_path):
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink semantics")
+def test_database_rejects_symlink_paths(tmp_path):
+    target = tmp_path / "target.db"
+    Database(target)
+    link = tmp_path / "linked.db"
+    link.symlink_to(target)
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        Database(link)
+
+    assert Database(target).health()["ok"] is True
