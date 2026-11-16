@@ -202,3 +202,45 @@ def test_openapi_checks_operation_responses_and_inline_descriptions(tmp_path):
     assert "OPENAPI_RESPONSE_INVALID" in codes
     assert "OPENAPI_RESPONSE_DESCRIPTION_MISSING" in codes
     assert codes.count("OPENAPI_RESPONSES_MISSING") == 1
+
+
+def test_openapi_operations_map_only_to_exact_static_python_routes(tmp_path):
+    (tmp_path / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items": {
+                "get": {"operationId": "listItems", "responses": {"200": {"description": "ok"}}},
+            },
+            "/ambiguous": {
+                "post": {"operationId": "createAmbiguous", "responses": {"201": {"description": "created"}}},
+            },
+            "/unmapped": {
+                "get": {"operationId": "getUnmapped", "responses": {"200": {"description": "ok"}}},
+            },
+        },
+    }), encoding="utf-8")
+    (tmp_path / "api.py").write_text(
+        "@app.get('/items')\n"
+        "def list_items(): pass\n"
+        "@app.post('/ambiguous')\n"
+        "def create_one(): pass\n"
+        "@router.post('/ambiguous')\n"
+        "def create_two(): pass\n"
+        "PATH = '/unmapped'\n"
+        "@app.get(PATH)\n"
+        "def dynamic_unmapped(): pass\n",
+        encoding="utf-8",
+    )
+
+    report = analyze_contracts(tmp_path)
+
+    mappings = {(item["method"], item["path"]): item for item in report["source_mappings"]}
+    assert mappings[("GET", "/items")]["mapping_status"] == "matched"
+    assert mappings[("GET", "/items")]["sources"][0]["source_path"] == "api.py"
+    assert mappings[("POST", "/ambiguous")]["mapping_status"] == "ambiguous"
+    assert mappings[("POST", "/ambiguous")]["confidence"] == "UNKNOWN"
+    assert mappings[("GET", "/unmapped")]["mapping_status"] == "unmapped"
+    assert report["source_mapping_count"] == 1
+    assert report["ambiguous_operation_count"] == 1
+    assert report["unmapped_operation_count"] == 1
