@@ -105,12 +105,6 @@ def _router_prefixes(tree: ast.Module) -> dict[str, list[str] | None]:
         mounts_by_parent.setdefault(parent, []).append((child.id, mount_prefix))
 
     resolved_sets: dict[str, set[str]] = {}
-    mounted_as_child = {
-        child
-        for mounts in mounts_by_parent.values()
-        for child, _prefix in mounts
-    }
-
     def invalidate(name: str, active: tuple[str, ...] = ()) -> None:
         if name in active or name in invalid_routers:
             return
