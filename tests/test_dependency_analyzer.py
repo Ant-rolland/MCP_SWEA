@@ -201,3 +201,16 @@ packages:
         ("@scope/tool", "2.4.1"),
     }
     assert lock["locked_dependency_edges"][0]["target"] == "left-pad"
+
+
+
+def test_parses_yarn_berry_lockfile_packages_and_edges(tmp_path):
+    (tmp_path / 'yarn.lock').write_text('''__metadata:\n  version: 8\n  cacheKey: 10c0\n\n"left-pad@npm:^1.0.0":\n  version: 1.3.0\n  resolution: "left-pad@npm:1.3.0"\n  dependencies:\n    right-pad: "npm:^2.0.0"\n\n"@scope/tool@npm:^2.0.0":\n  version: 2.4.1\n  resolution: "@scope/tool@npm:2.4.1"\n''', encoding='utf-8')
+    report = analyze_dependency_manifests(tmp_path)
+    lock = report['manifests'][0]
+    assert lock['lockfile_version'] == '8'
+    assert {(item['name'], item['version']) for item in lock['locked_packages']} == {
+        ('left-pad', '1.3.0'), ('@scope/tool', '2.4.1')}
+    assert lock['locked_dependency_edges'] == [{
+        'source': 'left-pad', 'target': 'right-pad',
+        'source_install_path': '"left-pad@npm:^1.0.0"'}]
