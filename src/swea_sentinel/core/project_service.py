@@ -994,7 +994,7 @@ class ProjectService:
         )
 
     def analyze_security(self, project_id: str) -> ToolResult:
-        """Run bounded, read-only Python security pattern checks and persist evidence."""
+        """Run bounded, read-only project security pattern checks and persist evidence."""
         from swea_sentinel.core.security_analyzer import analyze_python_security
 
         _, root = self._project(project_id)
@@ -1003,8 +1003,8 @@ class ProjectService:
         now = datetime.now(UTC).isoformat()
         evidence_by_path = {
             relative: Evidence(
-                kind="python_security_source",
-                description="Python source file inspected by static security pattern checks",
+                kind="security_source_file",
+                description="Project text/source file inspected by static security pattern checks",
                 origin=DataOrigin.VERIFIED_SOURCE,
                 qualification=QualificationStatus.QUALIFIED,
                 source_path=relative,
