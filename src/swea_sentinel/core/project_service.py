@@ -636,6 +636,8 @@ class ProjectService:
                 payload = json.loads(row["payload_json"])
             except (TypeError, ValueError):
                 payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
             route_scan = payload.get("route_scan", {})
             scan_complete = not (
                 payload.get("truncated", False)
