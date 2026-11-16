@@ -24,6 +24,7 @@ def test_discovers_only_literal_route_paths_and_methods(tmp_path):
         ("POST", "/health"),
     }
     assert all(item["source_path"] == "api.py" for item in report["routes"])
+    assert all(len(item["sha256"]) == 64 for item in report["routes"])
 
 
 def test_route_scan_is_bounded_by_file_count(tmp_path):
