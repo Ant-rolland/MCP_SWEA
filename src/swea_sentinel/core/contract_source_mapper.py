@@ -285,6 +285,172 @@ def _registration_routes(
     return routes
 
 
+def _cross_module_router_prefixes(
+    parsed_files: list[tuple[str, ast.Module]],
+) -> dict[str, dict[str, list[str] | None]]:
+    """Resolve one-level literal router imports/mounts across discovered Python modules."""
+    module_paths: dict[str, list[str]] = {}
+    local_prefixes: dict[str, dict[str, list[str] | None]] = {}
+    trees = {path: tree for path, tree in parsed_files}
+
+    for path, tree in parsed_files:
+        module_parts = list(Path(path).with_suffix("").parts)
+        if module_parts and module_parts[-1] == "__init__":
+            module_parts.pop()
+        module_name = ".".join(module_parts)
+        module_paths.setdefault(module_name, []).append(path)
+        local_prefixes[path] = _router_prefixes(tree)
+
+    unique_modules = {
+        name: paths[0] for name, paths in module_paths.items() if len(paths) == 1
+    }
+    external: dict[str, dict[str, list[str] | None]] = {}
+
+    def import_base(module_name: str, path: str, node: ast.ImportFrom) -> str | None:
+        if node.level == 0:
+            return node.module
+        package = (
+            module_name
+            if path.endswith("/__init__.py") or path == "__init__.py"
+            else module_name.rpartition(".")[0]
+        )
+        parts = package.split(".") if package else []
+        if node.level - 1 > len(parts):
+            return None
+        base_parts = parts[: len(parts) - (node.level - 1)]
+        base = ".".join(base_parts)
+        if node.module:
+            base = f"{base}.{node.module}" if base else node.module
+        return base
+
+    def resolve_router(
+        expression: ast.expr | None,
+        current_path: str,
+        routers: dict[str, list[str] | None],
+        module_aliases: dict[str, str],
+        symbol_aliases: dict[str, tuple[str, str]],
+    ) -> tuple[str, str] | None:
+        if isinstance(expression, ast.Name):
+            if expression.id in routers:
+                return current_path, expression.id
+            return symbol_aliases.get(expression.id)
+        parts: list[str] = []
+
+        def collect(node: ast.expr) -> bool:
+            if isinstance(node, ast.Name):
+                parts.append(node.id)
+                return True
+            if isinstance(node, ast.Attribute):
+                if collect(node.value):
+                    parts.append(node.attr)
+                    return True
+            return False
+
+        if not collect(expression) or len(parts) < 2:
+            return None
+        base_path = module_aliases.get(parts[0])
+        if base_path is None:
+            return None
+        suffix = parts[1:]
+        for module_length in range(len(suffix) - 1, -1, -1):
+            module_name = ".".join(
+                [Path(base_path).with_suffix("").as_posix().replace("/", "."), *suffix[:module_length]]
+            )
+            candidate_path = unique_modules.get(module_name)
+            if candidate_path is not None:
+                return candidate_path, suffix[module_length]
+        return None
+
+    for path, tree in parsed_files:
+        module_parts = list(Path(path).with_suffix("").parts)
+        if module_parts and module_parts[-1] == "__init__":
+            module_parts.pop()
+        module_name = ".".join(module_parts)
+        routers = local_prefixes[path]
+        module_aliases: dict[str, str] = {}
+        symbol_aliases: dict[str, tuple[str, str]] = {}
+
+        for statement in tree.body:
+            if isinstance(statement, ast.Import):
+                for item in statement.names:
+                    if item.asname:
+                        target_path = unique_modules.get(item.name)
+                        if target_path is not None:
+                            module_aliases[item.asname] = target_path
+                    else:
+                        root_name = item.name.split(".")[0]
+                        target_path = unique_modules.get(root_name)
+                        if target_path is not None:
+                            module_aliases[root_name] = target_path
+            elif isinstance(statement, ast.ImportFrom):
+                base = import_base(module_name, path, statement)
+                if not base:
+                    continue
+                base_path = unique_modules.get(base)
+                for item in statement.names:
+                    if item.name == "*":
+                        continue
+                    bound_name = item.asname or item.name
+                    submodule_path = unique_modules.get(f"{base}.{item.name}")
+                    if submodule_path is not None:
+                        module_aliases[bound_name] = submodule_path
+                    elif base_path is not None:
+                        symbol_aliases[bound_name] = (base_path, item.name)
+
+        for node in ast.walk(tree):
+            if (
+                not isinstance(node, ast.Call)
+                or not isinstance(node.func, ast.Attribute)
+                or node.func.attr != "include_router"
+                or not node.args
+            ):
+                continue
+            child = resolve_router(
+                node.args[0], path, routers, module_aliases, symbol_aliases
+            )
+            if child is None or child[0] == path:
+                continue
+            child_path, child_name = child
+            child_prefixes = local_prefixes.get(child_path, {}).get(child_name)
+            if child_name not in local_prefixes.get(child_path, {}):
+                continue
+
+            parent = resolve_router(
+                node.func.value, path, routers, module_aliases, symbol_aliases
+            )
+            if parent is None:
+                parent_prefixes: list[str] | None = [""]
+            elif parent[0] == path:
+                parent_prefixes = routers.get(parent[1])
+            else:
+                # Multi-hop imported parent routers require full project graph resolution.
+                continue
+
+            prefix_node = next(
+                (item.value for item in node.keywords if item.arg == "prefix"), None
+            )
+            mount_prefix = "" if prefix_node is None else _literal_path(prefix_node)
+            target = external.setdefault(child_path, {})
+            if (
+                mount_prefix is None
+                or parent_prefixes is None
+                or child_prefixes is None
+            ):
+                target[child_name] = None
+                continue
+            mounted = [
+                _join_paths(parent_prefix, mount_prefix, child_prefix)
+                for parent_prefix in parent_prefixes
+                for child_prefix in child_prefixes
+            ]
+            existing = target.get(child_name, [])
+            if existing is None:
+                continue
+            target[child_name] = sorted(set([*existing, *mounted]))
+
+    return external
+
+
 def discover_python_routes(
     root: Path,
     *,
