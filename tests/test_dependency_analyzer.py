@@ -213,7 +213,7 @@ def test_parses_yarn_berry_lockfile_packages_and_edges(tmp_path):
         ('left-pad', '1.3.0'), ('@scope/tool', '2.4.1')}
     assert lock['locked_dependency_edges'] == [{
         'source': 'left-pad', 'target': 'right-pad',
-        'source_install_path': '"left-pad@npm:^1.0.0"'}]
+        'source_install_path': 'left-pad@npm:^1.0.0'}]
 
 
 
