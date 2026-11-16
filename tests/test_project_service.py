@@ -445,8 +445,11 @@ def test_node_source_imports_link_to_unique_locked_packages_and_blast_radius(tmp
     )
     (project / "app.ts").write_text(
         "import React from 'react';\n"
-        "import { helper } from '@scope/pkg/subpath';\n"
         "const lodash = require('lodash');\n",
+        encoding="utf-8",
+    )
+    (project / "service.ts").write_text(
+        "import { helper } from '@scope/pkg/subpath';\n",
         encoding="utf-8",
     )
     db = Database(tmp_path / "db.sqlite")
@@ -468,7 +471,7 @@ def test_node_source_imports_link_to_unique_locked_packages_and_blast_radius(tmp
     }
     assert stored == {
         ("app.ts", "package-lock.json#package:react@18.3.1", "node_package_graph"),
-        ("app.ts", "package-lock.json#package:@scope/pkg@1.2.3", "node_package_graph"),
+        ("service.ts", "package-lock.json#package:@scope/pkg@1.2.3", "node_package_graph"),
         ("app.ts", "package-lock.json#package:lodash@4.17.21", "node_package_graph"),
         (
             "package-lock.json#package:@scope/pkg@1.2.3",
@@ -481,13 +484,11 @@ def test_node_source_imports_link_to_unique_locked_packages_and_blast_radius(tmp
         registered.project_id, "package-lock.json#package:react@18.3.1"
     )
     node_impact = impact.result["impact_by_relation"]["node_package_graph"]
-    assert node_impact["direct_dependents"] == [
+    assert set(node_impact["direct_dependents"]) == {
         "app.ts",
         "package-lock.json#package:@scope/pkg@1.2.3",
-    ] or node_impact["direct_dependents"] == [
-        "package-lock.json#package:@scope/pkg@1.2.3"
-    ]
-    assert "app.ts" in {
+    }
+    assert "service.ts" in {
         item["identifier"] for item in node_impact["transitive_dependents"]
     }
 
