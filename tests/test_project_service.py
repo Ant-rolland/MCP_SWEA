@@ -818,3 +818,37 @@ def test_php_source_import_attribution_skips_ambiguous_psr4_prefixes(tmp_path):
             (registered.project_id,),
         ).fetchone()[0]
     assert count == 0
+
+
+def test_assess_project_runs_current_analyses_and_returns_consolidated_summary(tmp_path):
+    project = tmp_path / "assessment-sample"
+    project.mkdir()
+    (project / "app.py").write_text(
+        "def greet(name):\n    return f'hello {name}'\n", encoding="utf-8"
+    )
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    result = service.assess_project(registered.project_id)
+
+    assert result.status.value == "completed"
+    assert result.result["analysis_level"] == "orchestrated_project_assessment"
+    assert set(result.result["analyses"]) == {
+        "architecture", "dependencies", "contracts", "code_quality", "security",
+    }
+    assert result.result["risk_summary"]["domains_assessed"] >= 5
+    assert result.result["total_findings"] == len(result.findings)
+    assert result.result["total_evidence"] == len(result.evidence)
+
+
+def test_assess_project_can_refresh_before_running_analyses(tmp_path):
+    project = tmp_path / "assessment-refresh"
+    project.mkdir()
+    (project / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    result = service.assess_project(registered.project_id, refresh_index=True)
+
+    assert result.result["refresh"]["status"] == "completed"
+    assert result.status.value == "completed"
