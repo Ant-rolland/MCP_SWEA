@@ -97,3 +97,29 @@ def test_detects_obvious_dynamic_sql_but_not_parameterized_queries(tmp_path):
     assert len(findings) == 3
     assert all(item["severity"] == "high" for item in findings)
     assert all(item["confidence"] == "HEURISTIC" for item in findings)
+
+
+def test_detects_known_credential_formats_without_echoing_values(tmp_path):
+    github_token = "ghp_" + "A" * 36
+    aws_key_id = "AKIA" + "B" * 16
+    private_key_marker = "-----BEGIN RSA " + "PRIVATE KEY-----"
+    (tmp_path / "credentials.py").write_text(
+        f'github_token = "{github_token}"\n'
+        f'aws_key_id = "{aws_key_id}"\n'
+        f'private_key = "{private_key_marker}"\n'
+        'example = "replace-me-with-your-token"\n',
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_HARDCODED_CREDENTIAL"
+    ]
+    assert len(findings) == 3
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert all(github_token not in item["message"] for item in findings)
+    assert all(aws_key_id not in item["message"] for item in findings)
+    assert all(private_key_marker not in item["message"] for item in findings)
