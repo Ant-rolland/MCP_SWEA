@@ -91,7 +91,11 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
         ) from exc
 
     runtime_settings = settings or load_settings()
-    path = db_path or os.getenv("SWEA_DB_PATH", runtime_settings.storage.path)
+    path = (
+        db_path
+        if db_path is not None
+        else os.getenv("SWEA_DB_PATH") or runtime_settings.storage.path
+    )
     database = Database(Path(path).expanduser())
     service = ProjectService(database, runtime_settings.project_index)
     mcp = FastMCP(runtime_settings.server.name)
