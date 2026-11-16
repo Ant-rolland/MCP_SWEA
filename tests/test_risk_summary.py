@@ -79,3 +79,32 @@ def test_risk_summary_returns_current_findings_and_their_evidence(tmp_path):
     assert summary.result["overall"]["severity_counts"]["high"] == 1
     assert summary.findings[0].code == "PYTHON_SUBPROCESS_SHELL_TRUE"
     assert summary.evidence[0].kind == "python_security_source"
+
+
+def test_risk_summary_marks_truncated_node_source_scan_as_incomplete(tmp_path):
+    project = tmp_path / "node-sample"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^18"}}', encoding="utf-8"
+    )
+    (project / "a.js").write_text(
+        "import React from 'react';\n", encoding="utf-8"
+    )
+    (project / "b.js").write_text(
+        "import zod from 'zod';\n", encoding="utf-8"
+    )
+    service = ProjectService(
+        Database(tmp_path / "swea.sqlite"),
+        ProjectIndexSettings(max_files=1),
+    )
+    registered = service.initialize(str(project))
+    dependency_result = service.analyze_dependencies(registered.project_id)
+    assert dependency_result.result["node_source_imports"]["truncated"] is True
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.status.value == "partial"
+    assert summary.result["domains_incomplete"] == ["architecture"]
+    architecture = summary.result["domains"][0]
+    assert architecture["domain"] == "architecture"
+    assert architecture["scan_complete"] is False
