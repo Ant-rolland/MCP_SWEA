@@ -44,7 +44,7 @@ def test_http_transport_defaults_to_loopback_and_forbids_remote_binding(tmp_path
 
 def test_environment_override_cannot_enable_remote_http_binding(tmp_path, monkeypatch):
     config = tmp_path / "settings.yaml"
-    config.write_text('version: "1.0"\\n', encoding="utf-8")
+    config.write_text('version: "1.0"\n', encoding="utf-8")
     monkeypatch.setenv("SWEA_HTTP_HOST", "0.0.0.0")
 
     try:
