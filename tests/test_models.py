@@ -4,8 +4,8 @@ from pydantic import ValidationError
 from swea_sentinel.models import (
     Confidence,
     DataOrigin,
-    ExecutionStatus,
     Evidence,
+    ExecutionStatus,
     Finding,
     LifecycleState,
     QualificationStatus,
