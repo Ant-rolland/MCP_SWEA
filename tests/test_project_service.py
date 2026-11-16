@@ -146,7 +146,7 @@ def test_dependency_analysis_persists_npm_locked_packages_and_edges(tmp_path):
         ("package.json", "react", "manifest:node"),
         ("package-lock.json#package:react@19.0.0", "package-lock.json#package:react@19.0.0", "lockfile:npm:package"),
         ("package-lock.json#package:react-dom@19.0.0", "package-lock.json#package:react-dom@19.0.0", "lockfile:npm:package"),
-        ("package-lock.json#package:react-dom@19.0.0", "package-lock.json#package:react@19.0.0", "lockfile:npm:edge"),
+        ("package-lock.json#package:react-dom@19.0.0", "package-lock.json#package:react@19.0.0", "node_package_graph"),
     }
 
 
@@ -410,3 +410,124 @@ version = "2.32.3"
             (registered.project_id,),
         ).fetchone()[0]
     assert source_edges == 0
+
+
+def test_node_source_imports_link_to_unique_locked_packages_and_blast_radius(tmp_path):
+    project = tmp_path / "node-source-graph"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^18","@scope/pkg":"^1","lodash":"^4"}}',
+        encoding="utf-8",
+    )
+    (project / "package-lock.json").write_text(
+        json.dumps({
+            "name": "node-source-graph",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {
+                    "name": "node-source-graph",
+                    "version": "1.0.0",
+                    "dependencies": {
+                        "react": "^18",
+                        "@scope/pkg": "^1",
+                        "lodash": "^4",
+                    },
+                },
+                "node_modules/react": {"version": "18.3.1"},
+                "node_modules/@scope/pkg": {
+                    "version": "1.2.3",
+                    "dependencies": {"react": "^18"},
+                },
+                "node_modules/lodash": {"version": "4.17.21"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    (project / "app.ts").write_text(
+        "import React from 'react';\n"
+        "import { helper } from '@scope/pkg/subpath';\n"
+        "const lodash = require('lodash');\n",
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    result = service.analyze_dependencies(registered.project_id)
+
+    assert result.result["node_source_imports"]["edge_count"] == 3
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT source_path, target_name, dependency_type FROM dependencies "
+            "WHERE project_id = ? AND dependency_type = 'node_package_graph'",
+            (registered.project_id,),
+        ).fetchall()
+    stored = {
+        (row["source_path"], row["target_name"], row["dependency_type"])
+        for row in rows
+    }
+    assert stored == {
+        ("app.ts", "package-lock.json#package:react@18.3.1", "node_package_graph"),
+        ("app.ts", "package-lock.json#package:@scope/pkg@1.2.3", "node_package_graph"),
+        ("app.ts", "package-lock.json#package:lodash@4.17.21", "node_package_graph"),
+        (
+            "package-lock.json#package:@scope/pkg@1.2.3",
+            "package-lock.json#package:react@18.3.1",
+            "node_package_graph",
+        ),
+    }
+
+    impact = service.check_blast_radius(
+        registered.project_id, "package-lock.json#package:react@18.3.1"
+    )
+    node_impact = impact.result["impact_by_relation"]["node_package_graph"]
+    assert node_impact["direct_dependents"] == [
+        "app.ts",
+        "package-lock.json#package:@scope/pkg@1.2.3",
+    ] or node_impact["direct_dependents"] == [
+        "package-lock.json#package:@scope/pkg@1.2.3"
+    ]
+    assert "app.ts" in {
+        item["identifier"] for item in node_impact["transitive_dependents"]
+    }
+
+    service.analyze_dependencies(registered.project_id)
+    with db.connect() as conn:
+        repeated_count = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'node_package_graph'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert repeated_count == 4
+
+
+def test_node_source_import_attribution_skips_ambiguous_locked_versions(tmp_path):
+    project = tmp_path / "node-ambiguous"
+    project.mkdir()
+    (project / "package-lock.json").write_text(
+        json.dumps({
+            "name": "node-ambiguous",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "node-ambiguous", "version": "1.0.0"},
+                "node_modules/react": {"version": "18.3.1"},
+                "node_modules/parent/node_modules/react": {"version": "17.0.2"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    (project / "app.js").write_text(
+        "import React from 'react';\n", encoding="utf-8"
+    )
+    service = ProjectService(Database(tmp_path / "db.sqlite"))
+    registered = service.initialize(str(project))
+
+    service.analyze_dependencies(registered.project_id)
+
+    with service.db.connect() as conn:
+        source_links = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'node_package_graph' AND source_path = 'app.js'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert source_links == 0
