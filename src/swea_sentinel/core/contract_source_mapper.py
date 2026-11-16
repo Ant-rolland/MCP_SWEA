@@ -33,9 +33,12 @@ def _literal_methods(value: ast.expr) -> list[str] | None:
 
 
 def _literal_path(value: ast.expr | None) -> str | None:
-    if isinstance(value, ast.Constant) and isinstance(value.value, str):
-        if value.value == "" or value.value.startswith("/"):
-            return value.value
+    if (
+        isinstance(value, ast.Constant)
+        and isinstance(value.value, str)
+        and (value.value == "" or value.value.startswith("/"))
+    ):
+        return value.value
     return None
 
 
