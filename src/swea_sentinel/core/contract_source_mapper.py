@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -113,6 +114,7 @@ def discover_python_routes(
                     break
                 bytes_scanned += len(raw)
                 files_scanned += 1
+                digest = hashlib.sha256(raw).hexdigest()
                 tree = ast.parse(raw, filename=path.relative_to(root).as_posix())
             except (OSError, UnicodeError, SyntaxError):
                 continue
@@ -122,6 +124,7 @@ def discover_python_routes(
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     for route in _decorator_routes(node):
                         route["source_path"] = relative
+                        route["sha256"] = digest
                         routes.append(route)
         if truncated_reason:
             break
