@@ -230,7 +230,7 @@ class Database:
                 (
                     event_id, project_id, action, outcome,
                     json.dumps(details, separators=(",", ":"), default=str),
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                 ),
             )
 
