@@ -285,7 +285,7 @@ def _parse_yarn_classic_lockfile(text: str) -> dict[str, Any]:
         elif stripped in {'dependencies:', 'optionalDependencies:'}:
             in_dependencies = True
         elif in_dependencies and line.startswith('    '):
-            target = stripped.split(':', 1)[0].strip(chr(34)).strip(chr(39))
+            target = stripped.split(None, 1)[0].rstrip(':').strip(chr(34)).strip(chr(39))
             if target and target not in dependencies:
                 dependencies.append(target)
         elif line.startswith('  ') and not line.startswith('    '):
