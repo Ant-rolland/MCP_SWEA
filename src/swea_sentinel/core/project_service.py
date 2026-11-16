@@ -1302,13 +1302,18 @@ class ProjectService:
             ("security", self.analyze_security(project_id)),
         ]
         risk_summary = self.get_risk_summary(project_id)
+        domains_not_assessed = risk_summary.result.get(
+            "domains_not_assessed", []
+        )
 
         findings: list[Finding] = []
         evidence_by_id: dict[str, Evidence] = {}
         analysis_summary: dict[str, dict[str, Any]] = {}
         limitations: list[str] = []
-        partial = bool(
-            refresh_result and refresh_result.status != ExecutionStatus.COMPLETED
+        partial = (
+            bool(refresh_result and refresh_result.status != ExecutionStatus.COMPLETED)
+            or bool(domains_not_assessed)
+            or risk_summary.status != ExecutionStatus.COMPLETED
         )
         for name, result in analyses:
             partial = partial or result.status != ExecutionStatus.COMPLETED
@@ -1348,12 +1353,14 @@ class ProjectService:
                 "risk_summary": risk_summary.result,
                 "total_findings": len(findings),
                 "total_evidence": len(evidence_by_id),
-                "domains_not_assessed": risk_summary.result.get(
-                    "domains_not_assessed", []
-                ),
+                "domains_not_assessed": domains_not_assessed,
+                "coverage_complete": not bool(domains_not_assessed),
             },
             findings=findings,
             evidence=list(evidence_by_id.values()),
-            limitations=limitations,
+            limitations=[
+                *limitations,
+                "The orchestrator runs only currently implemented analyses; unassessed SWEA domains remain explicitly listed and keep the overall result partial.",
+            ],
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
