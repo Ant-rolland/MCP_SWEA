@@ -80,3 +80,10 @@ def test_contract_route_mapping_persists_contract_and_python_source_evidence(tmp
             (registered.project_id,),
         ).fetchone()[0]
     assert persisted == 2
+
+    impact = service.check_blast_radius(
+        registered.project_id, "openapi.json#operation:GET /items"
+    )
+    contract_impact = impact.result["impact_by_relation"]["api_contract_graph"]
+    assert contract_impact["direct_dependents"] == ["api.py"]
+    assert impact.evidence[0].kind == "python_route_source"
