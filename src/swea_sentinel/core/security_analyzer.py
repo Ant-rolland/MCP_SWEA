@@ -93,17 +93,109 @@ def _dynamic_sql_query(node: ast.expr) -> bool:
     )
 
 
-def _safe_yaml_loader(node: ast.expr | None) -> bool:
+def _collect_import_aliases(
+    tree: ast.Module,
+) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """Resolve simple import aliases only when their local names are not rebound."""
+    module_aliases: dict[str, str] = {}
+    function_aliases: dict[str, tuple[str, str]] = {}
+    ambiguous_names: set[str] = set()
+    rebound_names: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                bound_name = item.asname or item.name.split(".")[0]
+                previous = module_aliases.get(bound_name)
+                if previous is not None and previous != item.name:
+                    ambiguous_names.add(bound_name)
+                module_aliases[bound_name] = item.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for item in node.names:
+                if item.name == "*":
+                    continue
+                bound_name = item.asname or item.name
+                previous = function_aliases.get(bound_name)
+                resolved = (node.module, item.name)
+                if previous is not None and previous != resolved:
+                    ambiguous_names.add(bound_name)
+                function_aliases[bound_name] = resolved
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            rebound_names.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            rebound_names.add(node.name)
+        elif isinstance(node, ast.arg):
+            rebound_names.add(node.arg)
+
+    for name in ambiguous_names | rebound_names:
+        module_aliases.pop(name, None)
+        function_aliases.pop(name, None)
+    return module_aliases, function_aliases
+
+
+def _resolved_attribute(
+    node: ast.expr,
+    owner: str,
+    attribute: str,
+    module_aliases: dict[str, str],
+) -> bool:
+    if not isinstance(node, ast.Attribute) or node.attr != attribute:
+        return False
+    if _is_name(node.value, owner):
+        return True
     return (
-        isinstance(node, ast.Attribute)
-        and node.attr in {"SafeLoader", "CSafeLoader"}
-        and _is_name(node.value, "yaml")
-    ) or _is_name(node, "SafeLoader") or _is_name(node, "CSafeLoader")
+        isinstance(node.value, ast.Name)
+        and module_aliases.get(node.value.id) == owner
+    )
+
+
+def _resolved_function(
+    node: ast.expr,
+    owner: str,
+    function: str,
+    function_aliases: dict[str, tuple[str, str]],
+) -> bool:
+    return (
+        isinstance(node, ast.Name)
+        and function_aliases.get(node.id) == (owner, function)
+    )
+
+
+def _safe_yaml_loader(
+    node: ast.expr | None,
+    module_aliases: dict[str, str],
+    function_aliases: dict[str, tuple[str, str]],
+) -> bool:
+    if isinstance(node, ast.Attribute) and node.attr in {"SafeLoader", "CSafeLoader"}:
+        if _is_name(node.value, "yaml"):
+            return True
+        if (
+            isinstance(node.value, ast.Name)
+            and module_aliases.get(node.value.id) == "yaml"
+        ):
+            return True
+    return (
+        _is_name(node, "SafeLoader")
+        or _is_name(node, "CSafeLoader")
+        or (
+            isinstance(node, ast.Name)
+            and function_aliases.get(node.id) in {
+                ("yaml", "SafeLoader"), ("yaml", "CSafeLoader")
+            }
+        )
+    )
 
 
 class _SecurityVisitor(ast.NodeVisitor):
-    def __init__(self, path: str) -> None:
+    def __init__(
+        self,
+        path: str,
+        module_aliases: dict[str, str],
+        function_aliases: dict[str, tuple[str, str]],
+    ) -> None:
         self.path = path
+        self.module_aliases = module_aliases
+        self.function_aliases = function_aliases
         self.findings: list[dict[str, Any]] = []
 
     def _add(
@@ -160,7 +252,12 @@ class _SecurityVisitor(ast.NodeVisitor):
                     "or constrained dispatch table."
                 ),
             )
-        elif _is_attribute(function, "os", "system") or _is_attribute(function, "os", "popen"):
+        elif (
+            _resolved_attribute(function, "os", "system", self.module_aliases)
+            or _resolved_attribute(function, "os", "popen", self.module_aliases)
+            or _resolved_function(function, "os", "system", self.function_aliases)
+            or _resolved_function(function, "os", "popen", self.function_aliases)
+        ):
             self._add(
                 code="PYTHON_OS_COMMAND_EXECUTION",
                 severity="high",
@@ -174,8 +271,20 @@ class _SecurityVisitor(ast.NodeVisitor):
             )
         elif (
             isinstance(function, ast.Attribute)
-            and _is_name(function.value, "subprocess")
             and function.attr in SUBPROCESS_FUNCTIONS
+            and (
+                _is_name(function.value, "subprocess")
+                or (
+                    isinstance(function.value, ast.Name)
+                    and self.module_aliases.get(function.value.id) == "subprocess"
+                )
+            )
+            and _literal_true(_keyword(node, "shell"))
+        ) or (
+            isinstance(function, ast.Name)
+            and function.id in self.function_aliases
+            and self.function_aliases[function.id][0] == "subprocess"
+            and self.function_aliases[function.id][1] in SUBPROCESS_FUNCTIONS
             and _literal_true(_keyword(node, "shell"))
         ):
             self._add(
@@ -189,7 +298,10 @@ class _SecurityVisitor(ast.NodeVisitor):
                     "and enforce timeouts and output limits."
                 ),
             )
-        elif _is_attribute(function, "yaml", "unsafe_load"):
+        elif (
+            _resolved_attribute(function, "yaml", "unsafe_load", self.module_aliases)
+            or _resolved_function(function, "yaml", "unsafe_load", self.function_aliases)
+        ):
             self._add(
                 code="PYTHON_UNSAFE_YAML_LOAD",
                 severity="high",
@@ -198,8 +310,16 @@ class _SecurityVisitor(ast.NodeVisitor):
                 message="yaml.unsafe_load can construct arbitrary Python objects from YAML.",
                 recommendation="Use yaml.safe_load for untrusted or externally supplied YAML.",
             )
-        elif _is_attribute(function, "yaml", "load") and not _safe_yaml_loader(
-            _keyword(node, "Loader")
+        elif (
+            (
+                _resolved_attribute(function, "yaml", "load", self.module_aliases)
+                or _resolved_function(function, "yaml", "load", self.function_aliases)
+            )
+            and not _safe_yaml_loader(
+                _keyword(node, "Loader"),
+                self.module_aliases,
+                self.function_aliases,
+            )
         ):
             self._add(
                 code="PYTHON_YAML_LOAD_WITHOUT_SAFE_LOADER",
@@ -210,10 +330,20 @@ class _SecurityVisitor(ast.NodeVisitor):
                 recommendation="Use yaml.safe_load or pass yaml.SafeLoader explicitly.",
             )
         elif (
-            isinstance(function, ast.Attribute)
-            and isinstance(function.value, ast.Name)
-            and function.value.id in {"requests", "httpx"}
-            and _literal_false(_keyword(node, "verify"))
+            (
+                isinstance(function, ast.Attribute)
+                and isinstance(function.value, ast.Name)
+                and (
+                    function.value.id in {"requests", "httpx"}
+                    or self.module_aliases.get(function.value.id) in {"requests", "httpx"}
+                )
+            )
+            or (
+                isinstance(function, ast.Name)
+                and function.id in self.function_aliases
+                and self.function_aliases[function.id][0] in {"requests", "httpx"}
+            )
+        ) and _literal_false(_keyword(node, "verify"))
         ):
             self._add(
                 code="PYTHON_TLS_CERTIFICATE_VERIFICATION_DISABLED",
@@ -229,7 +359,14 @@ class _SecurityVisitor(ast.NodeVisitor):
                     "bundle instead of disabling TLS verification."
                 ),
             )
-        elif _is_attribute(function, "ssl", "_create_unverified_context"):
+        elif (
+            _resolved_attribute(
+                function, "ssl", "_create_unverified_context", self.module_aliases
+            )
+            or _resolved_function(
+                function, "ssl", "_create_unverified_context", self.function_aliases
+            )
+        ):
             self._add(
                 code="PYTHON_TLS_UNVERIFIED_SSL_CONTEXT",
                 severity="high",
@@ -262,9 +399,23 @@ class _SecurityVisitor(ast.NodeVisitor):
                 ),
             )
         elif (
-            isinstance(function, ast.Attribute)
-            and _is_name(function.value, "pickle")
-            and function.attr in {"load", "loads"}
+            (
+                isinstance(function, ast.Attribute)
+                and function.attr in {"load", "loads"}
+                and (
+                    _is_name(function.value, "pickle")
+                    or (
+                        isinstance(function.value, ast.Name)
+                        and self.module_aliases.get(function.value.id) == "pickle"
+                    )
+                )
+            )
+            or (
+                isinstance(function, ast.Name)
+                and function.id in self.function_aliases
+                and self.function_aliases[function.id][0] == "pickle"
+                and self.function_aliases[function.id][1] in {"load", "loads"}
+            )
         ):
             self._add(
                 code="PYTHON_PICKLE_DESERIALIZATION",
