@@ -278,10 +278,7 @@ class ProjectService:
             status=status,
             result={"assessment_id": assessment_id, **report},
             evidence=evidence,
-            limitations=[
-                *list(report["limitations"]),
-                *node_import_report["limitations"],
-            ],
+            limitations=list(report["limitations"]),
             duration_ms=int(report["duration_ms"]),
         )
 
