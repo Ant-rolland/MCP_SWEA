@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -132,7 +132,58 @@ CREATE TABLE IF NOT EXISTS audit_events (
 """
 
 
-MIGRATIONS: dict[int, str] = {1: DDL}
+WORKSPACE_MIGRATION = """
+CREATE TABLE workspaces (
+    workspace_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE principals (
+    principal_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE workspace_memberships (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner', 'maintainer', 'analyst', 'viewer')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, principal_id)
+);
+INSERT INTO workspaces(workspace_id, name, created_at)
+VALUES ('local', 'Local workspace', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT INTO principals(principal_id, display_name, created_at)
+VALUES ('local-owner', 'Local owner (bootstrap)', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT INTO workspace_memberships(workspace_id, principal_id, role, created_at)
+VALUES ('local', 'local-owner', 'owner', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+ALTER TABLE projects ADD COLUMN workspace_id TEXT
+    REFERENCES workspaces(workspace_id) ON DELETE CASCADE;
+UPDATE projects SET workspace_id = 'local' WHERE workspace_id IS NULL;
+CREATE INDEX idx_projects_workspace ON projects(workspace_id);
+
+ALTER TABLE tool_executions ADD COLUMN workspace_id TEXT
+    REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+ALTER TABLE audit_events ADD COLUMN workspace_id TEXT
+    REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+ALTER TABLE audit_events ADD COLUMN actor_principal_id TEXT
+    REFERENCES principals(principal_id) ON DELETE SET NULL;
+
+CREATE TRIGGER projects_require_workspace_insert
+BEFORE INSERT ON projects
+WHEN NEW.workspace_id IS NULL
+BEGIN
+    SELECT RAISE(ABORT, 'project workspace_id is required');
+END;
+CREATE TRIGGER projects_require_workspace_update
+BEFORE UPDATE OF workspace_id ON projects
+WHEN NEW.workspace_id IS NULL
+BEGIN
+    SELECT RAISE(ABORT, 'project workspace_id is required');
+END;
+"""
+
+MIGRATIONS: dict[int, str] = {1: DDL, 2: WORKSPACE_MIGRATION}
 
 
 class Database:
