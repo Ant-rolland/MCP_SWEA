@@ -17,6 +17,7 @@ SWEA Sentinel is an independent MCP service that adds an evidence-aware engineer
 - Exact static API-to-source mapping: OpenAPI operations are matched to literal Python HTTP route decorators only when both method and path match exactly. Unique matches include source path, function, line, and SHA-256 evidence; duplicate declarations are marked ambiguous and unmatched operations remain explicitly unmapped.
 - Initial Python code-quality analyzer: bounded AST checks for mutable default arguments, bare `except`, and broad `Exception`/`BaseException` catches. Findings carry severity, confidence, source location, recommendation, and SHA-256 evidence; syntax errors and truncated scans are explicit.
 - Initial Python security analyzer: bounded AST checks for `eval`/`exec`, `os.system`/`os.popen`, `subprocess.*(shell=True)`, unsafe YAML loading, and pickle deserialization. Findings are evidence-backed and distinguish high-confidence API patterns from heuristic pickle risk; no data-flow or taint claims are made.
+- Domain risk summary: `swea_get_risk_summary` reports latest open findings, severity/confidence counts, linked evidence, incomplete scans, and domains not yet assessed; it does not invent a composite risk score.
 - Real MCP client handshake tests for STDIO and Streamable HTTP.
 - GitHub Actions matrix for Python 3.12 and 3.13.
 
