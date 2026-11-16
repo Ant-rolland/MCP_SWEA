@@ -55,10 +55,14 @@ def _dynamic_sql_query(node: ast.expr) -> bool:
             None,
         )
         dynamic = any(isinstance(item, ast.FormattedValue) for item in node.values)
-    elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
-        if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
-            prefix = node.left.value
-            dynamic = True
+    elif (
+        isinstance(node, ast.BinOp)
+        and isinstance(node.op, (ast.Add, ast.Mod))
+        and isinstance(node.left, ast.Constant)
+        and isinstance(node.left.value, str)
+    ):
+        prefix = node.left.value
+        dynamic = True
     elif (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -73,7 +77,7 @@ def _dynamic_sql_query(node: ast.expr) -> bool:
         dynamic
         and prefix
         and re.match(
-            r"^\\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|MERGE|WITH)\\b",
+            r"^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|MERGE|WITH)\b",
             prefix,
             flags=re.IGNORECASE,
         )
