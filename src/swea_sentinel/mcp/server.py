@@ -123,6 +123,13 @@ def build_server(db_path: str | None = None, settings: Settings | None = None) -
         return service.analyze_dependencies(payload.project_id).model_dump(mode="json")
 
     @mcp.tool()
+    @_audit_tool(database, "swea_analyze_code_quality")
+    def swea_analyze_code_quality(project_id: str) -> dict[str, Any]:
+        """Run bounded static Python code-quality checks without executing project code."""
+        payload = ProjectReferenceInput(project_id=project_id)
+        return service.analyze_code_quality(payload.project_id).model_dump(mode="json")
+
+    @mcp.tool()
     @_audit_tool(database, "swea_analyze_contracts")
     def swea_analyze_contracts(project_id: str) -> dict[str, Any]:
         """Discover OpenAPI and JSON Schema contracts in a registered project."""
