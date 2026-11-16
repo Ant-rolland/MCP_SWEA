@@ -244,3 +244,35 @@ def test_openapi_operations_map_only_to_exact_static_python_routes(tmp_path):
     assert report["source_mapping_count"] == 1
     assert report["ambiguous_operation_count"] == 1
     assert report["unmapped_operation_count"] == 1
+
+
+def test_contract_mapping_marks_truncated_route_scan_as_incomplete(tmp_path, monkeypatch):
+    (tmp_path / "openapi.json").write_text(json.dumps({
+        "openapi": "3.1.0",
+        "info": {"title": "API", "version": "1"},
+        "paths": {
+            "/items": {
+                "get": {"responses": {"200": {"description": "ok"}}}
+            }
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        contract_analyzer,
+        "discover_python_routes",
+        lambda root: {
+            "routes": [],
+            "files_scanned": 1,
+            "bytes_scanned": 10,
+            "truncated": True,
+            "truncated_reason": "maximum_file_count",
+            "duration_ms": 1,
+            "limitations": [],
+        },
+    )
+
+    report = analyze_contracts(tmp_path)
+
+    assert report["truncated"] is True
+    assert report["truncated_reason"] == "python_route_scan:maximum_file_count"
+    assert report["source_mappings"][0]["mapping_status"] == "unmapped"
+    assert report["source_mappings"][0]["route_scan_complete"] is False
