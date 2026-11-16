@@ -23,6 +23,13 @@ SECRET_PATTERNS = (
     re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
     re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"),
+    re.compile(r"\bpypi-[A-Za-z0-9_-]{50,}\b"),
+    re.compile(r"\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b"),
+    re.compile(r"\bsk-proj-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bsk-ant-api\d{2}-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
 )
 
