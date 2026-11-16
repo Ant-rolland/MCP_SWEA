@@ -14,8 +14,17 @@ from uuid import uuid4
 from swea_sentinel.config import ProjectIndexSettings
 from swea_sentinel.core.architecture_analyzer import analyze_python_imports
 from swea_sentinel.models import (
-    Confidence, DataOrigin, Evidence, ExecutionStatus, Finding, FindingStatus,
-    ProjectStatus, QualificationStatus, Severity, SWEADomain, ToolResult,
+    Confidence,
+    DataOrigin,
+    Evidence,
+    ExecutionStatus,
+    Finding,
+    FindingStatus,
+    ProjectStatus,
+    QualificationStatus,
+    Severity,
+    SWEADomain,
+    ToolResult,
 )
 from swea_sentinel.persistence.database import Database
 
