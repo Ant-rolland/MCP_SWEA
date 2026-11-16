@@ -1284,3 +1284,76 @@ class ProjectService:
             duration_ms=int(report["duration_ms"]),
         )
 
+
+
+    def assess_project(
+        self, project_id: str, refresh_index: bool = False
+    ) -> ToolResult:
+        """Run every currently implemented bounded assessment and summarize the result."""
+        started = time.monotonic()
+        self._project(project_id)
+        refresh_result = self.refresh(project_id) if refresh_index else None
+
+        analyses = [
+            ("architecture", self.analyze_architecture(project_id)),
+            ("dependencies", self.analyze_dependencies(project_id)),
+            ("contracts", self.analyze_contracts(project_id)),
+            ("code_quality", self.analyze_code_quality(project_id)),
+            ("security", self.analyze_security(project_id)),
+        ]
+        risk_summary = self.get_risk_summary(project_id)
+
+        findings: list[Finding] = []
+        evidence_by_id: dict[str, Evidence] = {}
+        analysis_summary: dict[str, dict[str, Any]] = {}
+        limitations: list[str] = []
+        partial = bool(
+            refresh_result and refresh_result.status != ExecutionStatus.COMPLETED
+        )
+        for name, result in analyses:
+            partial = partial or result.status != ExecutionStatus.COMPLETED
+            findings.extend(result.findings)
+            for item in result.evidence:
+                evidence_by_id[item.evidence_id] = item
+            analysis_summary[name] = {
+                "status": result.status.value,
+                "assessment_id": result.result.get("assessment_id"),
+                "analysis_level": result.result.get("analysis_level"),
+                "finding_count": len(result.findings),
+                "evidence_count": len(result.evidence),
+                "duration_ms": result.duration_ms,
+            }
+            limitations.extend(
+                f"{name}: {item}" for item in result.limitations
+            )
+
+        refresh_summary = None
+        if refresh_result is not None:
+            refresh_summary = {
+                "status": refresh_result.status.value,
+                "snapshot_id": refresh_result.result.get("snapshot_id"),
+                "duration_ms": refresh_result.duration_ms,
+            }
+            limitations.extend(
+                f"refresh: {item}" for item in refresh_result.limitations
+            )
+
+        return ToolResult(
+            project_id=project_id,
+            status=ExecutionStatus.PARTIAL if partial else ExecutionStatus.COMPLETED,
+            result={
+                "analysis_level": "orchestrated_project_assessment",
+                "refresh": refresh_summary,
+                "analyses": analysis_summary,
+                "risk_summary": risk_summary.result,
+                "total_findings": len(findings),
+                "total_evidence": len(evidence_by_id),
+                "domains_not_assessed": risk_summary.result.get(
+                    "domains_not_assessed", []
+                ),
+            },
+            findings=findings,
+            evidence=list(evidence_by_id.values()),
+            limitations=limitations,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+        )
