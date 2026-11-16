@@ -90,3 +90,21 @@ def test_dependency_analysis_is_available_as_mcp_tool(monkeypatch, tmp_path):
     assert result["status"] == "completed"
     assert result["result"]["manifest_count"] == 1
     assert result["result"]["manifests"][0]["declared_dependency_names"] == ["react"]
+
+
+def test_consolidated_assessment_tool_runs_all_current_analyses(monkeypatch, tmp_path):
+    install_fake_mcp(monkeypatch)
+    server = build_server(str(tmp_path / "swea.db"))
+    project = tmp_path / "demo"
+    project.mkdir()
+    (project / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    initialized = server.tools["swea_initialize_project"](path=str(project))
+    project_id = initialized["project_id"]
+
+    result = server.tools["swea_assess_project"](project_id=project_id)
+
+    assert result["status"] == "completed"
+    assert result["result"]["analysis_level"] == "orchestrated_project_assessment"
+    assert set(result["result"]["analyses"]) == {
+        "architecture", "dependencies", "contracts", "code_quality", "security",
+    }
