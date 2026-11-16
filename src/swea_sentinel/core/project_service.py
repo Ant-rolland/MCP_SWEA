@@ -9,6 +9,7 @@ import time
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 from uuid import uuid4
 
 from swea_sentinel.config import ProjectIndexSettings
@@ -76,7 +77,7 @@ class ProjectService:
             limitations=["Project registration does not grant permission to modify project files."],
         )
 
-    def _project(self, project_id: str):
+    def _project(self, project_id: str) -> tuple[Any, Path]:
         with self.db.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM projects WHERE project_id = ?", (project_id,)
@@ -316,7 +317,7 @@ class ProjectService:
             known.update((source, dependency))
             reverse.setdefault(dependency, set()).add(source)
 
-        impact_by_relation: dict[str, dict[str, object]] = {}
+        impact_by_relation: dict[str, dict[str, Any]] = {}
         evidence_paths: set[str] = set()
         for relation in sorted(graphs):
             if target not in known_by_type[relation]:
@@ -535,15 +536,15 @@ class ProjectService:
                         f"{lock_path}#package:{package['name']}@{package['version']}",
                     ))
             for import_edge in python_import_report.get("external_import_edges", []):
-                candidates = [
+                python_candidates = [
                     package for package in locked_python_packages
                     if package[0] == normalize_python_name(import_edge["import_root"])
                 ]
-                if len(candidates) != 1:
+                if len(python_candidates) != 1:
                     continue
                 dependency_rows.append((
                     str(uuid4()), project_id,
-                    import_edge["source"], candidates[0][2],
+                    import_edge["source"], python_candidates[0][2],
                     "python_package_graph",
                 ))
             conn.executemany(
