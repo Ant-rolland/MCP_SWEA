@@ -424,6 +424,8 @@ class ProjectService:
                     "pnpm" if lock_name == "pnpm-lock.yaml" else
                     "yarn" if lock_name == "yarn.lock" else
                     "python" if lock_name in {"poetry.lock", "Pipfile.lock"} else
+                    "cargo" if lock_name == "Cargo.lock" else
+                    "go" if lock_name == "go.sum" else
                     "npm"
                 )
                 for package in item.get("locked_packages", []):
