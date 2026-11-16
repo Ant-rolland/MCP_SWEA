@@ -241,3 +241,25 @@ def test_detects_additional_developer_credential_formats_without_echoing_values(
         for item in findings
         for token in tokens.values()
     )
+
+
+def test_detects_context_labelled_aws_secret_access_keys_without_echoing_values(tmp_path):
+    aws_secret = "A" * 40
+    (tmp_path / "aws_credentials.py").write_text(
+        f'AWS_SECRET_ACCESS_KEY = "{aws_secret}"\\n'
+        f'config.aws_secret_key: str = "{aws_secret}"\\n'
+        f'random_value = "{aws_secret}"\\n'
+        'AWS_SECRET_ACCESS_KEY = "too-short"\\n',
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_HARDCODED_CREDENTIAL"
+    ]
+
+    assert len(findings) == 2
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert all(aws_secret not in item["message"] for item in findings)
