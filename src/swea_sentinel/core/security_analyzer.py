@@ -117,7 +117,9 @@ def _collect_import_aliases(
                 previous = module_aliases.get(bound_name)
                 if previous is not None and previous != item.name:
                     ambiguous_names.add(bound_name)
-                module_aliases[bound_name] = item.name
+                module_aliases[bound_name] = (
+                    item.name if item.asname else item.name.split(".")[0]
+                )
         elif isinstance(node, ast.ImportFrom) and node.module:
             for item in node.names:
                 if item.name == "*":
@@ -149,8 +151,6 @@ def _resolved_attribute(
 ) -> bool:
     if not isinstance(node, ast.Attribute) or node.attr != attribute:
         return False
-    if _is_name(node.value, owner):
-        return True
     return (
         isinstance(node.value, ast.Name)
         and module_aliases.get(node.value.id) == owner
@@ -175,17 +175,13 @@ def _safe_yaml_loader(
     function_aliases: dict[str, tuple[str, str]],
 ) -> bool:
     if isinstance(node, ast.Attribute) and node.attr in {"SafeLoader", "CSafeLoader"}:
-        if _is_name(node.value, "yaml"):
-            return True
         if (
             isinstance(node.value, ast.Name)
             and module_aliases.get(node.value.id) == "yaml"
         ):
             return True
     return (
-        _is_name(node, "SafeLoader")
-        or _is_name(node, "CSafeLoader")
-        or (
+        (
             isinstance(node, ast.Name)
             and function_aliases.get(node.id) in {
                 ("yaml", "SafeLoader"), ("yaml", "CSafeLoader")
@@ -281,11 +277,8 @@ class _SecurityVisitor(ast.NodeVisitor):
             isinstance(function, ast.Attribute)
             and function.attr in SUBPROCESS_FUNCTIONS
             and (
-                _is_name(function.value, "subprocess")
-                or (
-                    isinstance(function.value, ast.Name)
-                    and self.module_aliases.get(function.value.id) == "subprocess"
-                )
+                isinstance(function.value, ast.Name)
+                and self.module_aliases.get(function.value.id) == "subprocess"
             )
             and _literal_true(_keyword(node, "shell"))
         ) or (
@@ -342,8 +335,7 @@ class _SecurityVisitor(ast.NodeVisitor):
                 isinstance(function, ast.Attribute)
                 and isinstance(function.value, ast.Name)
                 and (
-                    function.value.id in {"requests", "httpx"}
-                    or self.module_aliases.get(function.value.id) in {"requests", "httpx"}
+                    self.module_aliases.get(function.value.id) in {"requests", "httpx"}
                 )
             )
             or (
@@ -410,11 +402,8 @@ class _SecurityVisitor(ast.NodeVisitor):
                 isinstance(function, ast.Attribute)
                 and function.attr in {"load", "loads"}
                 and (
-                    _is_name(function.value, "pickle")
-                    or (
-                        isinstance(function.value, ast.Name)
-                        and self.module_aliases.get(function.value.id) == "pickle"
-                    )
+                    isinstance(function.value, ast.Name)
+                    and self.module_aliases.get(function.value.id) == "pickle"
                 )
             )
             or (
