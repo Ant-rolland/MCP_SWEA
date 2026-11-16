@@ -200,6 +200,7 @@ def analyze_python_imports(
             "Static import resolution is approximate and does not execute project code.",
             "Dynamic imports, plugin loading, runtime dependency injection and generated modules are not resolved.",
             "External import roots are names observed in source, not a validated package inventory.",
-            "A detected local import edge does not prove that the dependency is used at runtime.",
+            "External import edges record source file, import root and statement target; package attribution is performed separately and conservatively.",
+            "A detected import edge does not prove that the dependency is used at runtime.",
         ],
     }
