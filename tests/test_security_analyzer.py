@@ -285,3 +285,30 @@ def test_detects_context_labelled_aws_secret_keys_in_config_files(tmp_path):
     assert len(findings) == 2
     assert {item["path"] for item in findings} == {".env", "settings.yaml"}
     assert all(aws_secret not in item["message"] for item in findings)
+
+def test_detects_additional_digitalocean_slack_and_encrypted_key_formats(tmp_path):
+    digitalocean = "dop_v1_" + "a" * 64
+    slack_app = "xapp-1-" + "A" * 28
+    encrypted_key_marker = "-----BEGIN ENCRYPTED PRIVATE KEY-----"
+    (tmp_path / "provider_credentials.py").write_text(
+        f'digitalocean_token = "{digitalocean}"\n'
+        f'slack_app_token = "{slack_app}"\n'
+        f'encrypted_key = "{encrypted_key_marker}"\n',
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+    findings = [
+        item for item in report["findings"]
+        if item["code"] == "PYTHON_HARDCODED_CREDENTIAL"
+    ]
+
+    assert len(findings) == 3
+    assert all(item["severity"] == "high" for item in findings)
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert all(
+        value not in item["message"]
+        for item in findings
+        for value in (digitalocean, slack_app, encrypted_key_marker)
+    )
+
