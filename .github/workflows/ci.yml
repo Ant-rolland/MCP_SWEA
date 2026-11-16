@@ -32,5 +32,7 @@ jobs:
         run: pytest
       - name: Compile source and tests
         run: python -m compileall -q src tests
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
       - name: Check CLI
         run: swea-sentinel --help
