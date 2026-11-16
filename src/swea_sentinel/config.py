@@ -38,7 +38,7 @@ class StorageSettings(StrictSettings):
     backend: Literal["sqlite"] = "sqlite"
     path: str = "~/.swea-sentinel/sentinel.db"
     journal_mode: Literal["WAL"] = "WAL"
-    schema_version: int = Field(default=2, ge=2)
+    schema_version: int = Field(default=2, ge=1)
 
 
 class ProjectIndexSettings(StrictSettings):
