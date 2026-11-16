@@ -875,6 +875,7 @@ class ProjectService:
                 payload.get("node_source_imports"),
                 payload.get("go_source_imports"),
                 payload.get("rust_source_imports"),
+                payload.get("php_source_imports"),
             ]
             source_scan_incomplete = any(
                 isinstance(source_scan, dict)
