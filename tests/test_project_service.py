@@ -386,7 +386,7 @@ version = "2.2.3"
 def test_python_import_package_mapping_skips_ambiguous_locked_versions(tmp_path):
     project = tmp_path / "ambiguous-python-package-graph"
     project.mkdir()
-    (project / "main.py").write_text("import requests\\n", encoding="utf-8")
+    (project / "main.py").write_text("import requests\n", encoding="utf-8")
     (project / "poetry.lock").write_text(
         """[[package]]
 name = "requests"
