@@ -207,3 +207,36 @@ def test_dependency_analysis_persists_python_and_cargo_lockfiles(tmp_path):
     stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows}
     assert ("poetry.lock#httpx@0.27.2", "httpx@0.27.2", "lockfile:python:package") in stored
     assert ("Cargo.lock#serde@1.0.210", "serde@1.0.210", "lockfile:cargo:package") in stored
+
+
+
+def test_blast_radius_reports_package_impacts_per_relation_without_crossing_graphs(tmp_path):
+    project = tmp_path / "blast-project"
+    project.mkdir()
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+
+    with db.connect() as conn:
+        conn.executemany(
+            "INSERT INTO dependencies(dependency_id,project_id,source_path,target_name,dependency_type) "
+            "VALUES(?,?,?,?,?)",
+            [
+                ("dep-1", registered.project_id, "package-lock.json#node_modules/app", "shared-lib@1.0.0", "lockfile:npm:edge"),
+                ("dep-2", registered.project_id, "package-lock.json#node_modules/plugin", "app@2.0.0", "lockfile:npm:edge"),
+                # Same identifier in another graph layer must not create a cross-layer path.
+                ("dep-3", registered.project_id, "Cargo.lock#other", "app@2.0.0", "lockfile:cargo:edge"),
+            ],
+        )
+
+    result = service.check_blast_radius(registered.project_id, "shared-lib@1.0.0")
+
+    assert result.result["analysis_level"] == "static_dependency_blast_radius"
+    npm = result.result["impact_by_relation"]["lockfile:npm:edge"]
+    assert npm["direct_dependents"] == ["package-lock.json#node_modules/app"]
+    assert npm["impact_count"] == 2
+    assert npm["transitive_dependents"] == [
+        {"identifier": "package-lock.json#node_modules/app", "distance": 1},
+        {"identifier": "package-lock.json#node_modules/plugin", "distance": 2},
+    ]
+    assert "lockfile:cargo:edge" not in result.result["impact_by_relation"]
