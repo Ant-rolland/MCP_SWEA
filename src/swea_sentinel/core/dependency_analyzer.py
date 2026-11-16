@@ -451,21 +451,40 @@ def _parse_go_mod(content: bytes) -> dict[str, Any]:
 
 
 def _parse_go_sum(content: bytes) -> dict[str, Any]:
+    """Read checksum presence by module/version without treating go.sum as a lock graph."""
     packages: dict[tuple[str, str], dict[str, str]] = {}
+    checksum_kinds: dict[tuple[str, str], set[str]] = {}
     for line in content.decode("utf-8-sig").splitlines():
         parts = line.split()
-        if len(parts) < 2 or parts[0].startswith("//"):
+        if len(parts) < 3 or parts[0].startswith("//"):
             continue
-        module, version = parts[0], parts[1]
-        if version.endswith("/go.mod"):
-            version = version[:-7]
-        packages[(module, version)] = {
+        module, version_token = parts[0], parts[1]
+        checksum_kind = "go_mod" if version_token.endswith("/go.mod") else "module"
+        version = version_token[:-7] if checksum_kind == "go_mod" else version_token
+        key = (module, version)
+        packages[key] = {
             "name": module, "version": version, "install_path": module + "@" + version
         }
+        checksum_kinds.setdefault(key, set()).add(checksum_kind)
     records = [packages[key] for key in sorted(packages)]
-    return {"lockfile_version": "go.sum", "locked_packages": records,
-            "locked_package_count": len(records), "locked_dependency_edges": [],
-            "locked_dependency_edge_count": 0}
+    checksum_records = [
+        {
+            "module": module,
+            "version": version,
+            "module_checksum": "module" in checksum_kinds[(module, version)],
+            "go_mod_checksum": "go_mod" in checksum_kinds[(module, version)],
+        }
+        for module, version in sorted(checksum_kinds)
+    ]
+    return {
+        "lockfile_version": "go.sum",
+        "locked_packages": records,
+        "locked_package_count": len(records),
+        "locked_dependency_edges": [],
+        "locked_dependency_edge_count": 0,
+        "checksum_records": checksum_records,
+        "checksum_record_count": len(checksum_records),
+    }
 
 
 def _classify(name: str) -> tuple[str, str] | None:
@@ -568,8 +587,6 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_python_lockfile(path, content)
                     elif ecosystem == "rust" and path.name == "Cargo.lock":
                         lockfile_details = _parse_cargo_lockfile(content)
-                    elif ecosystem == "go" and path.name == "go.mod":
-                        lockfile_details = _parse_go_mod(content)
                     elif ecosystem == "go" and path.name == "go.sum":
                         lockfile_details = _parse_go_sum(content)
                     if lockfile_details:
@@ -604,6 +621,62 @@ def analyze_dependency_manifests(
                 continue
         if truncated_reason:
             break
+
+    # Correlate go.mod requirements with sibling go.sum checksum records.
+    # A checksum is evidence of a recorded module/version, not proof that Go
+    # selected that version in the final module graph.
+    go_sum_by_directory = {
+        Path(item["path"]).parent.as_posix(): item
+        for item in manifests
+        if item["ecosystem"] == "go"
+        and Path(item["path"]).name == "go.sum"
+        and not item.get("parse_error")
+    }
+    for item in manifests:
+        if item["ecosystem"] != "go" or Path(item["path"]).name != "go.mod":
+            continue
+        directory = Path(item["path"]).parent.as_posix()
+        go_sum = go_sum_by_directory.get(directory)
+        if go_sum is None:
+            item["go_sum_path"] = None
+            item["go_sum_correlations"] = []
+            item["go_sum_correlation_status"] = "sibling_go_sum_not_found"
+            continue
+        checksum_index = {
+            (record["module"], record["version"]): record
+            for record in go_sum.get("checksum_records", [])
+        }
+        versions_by_module: dict[str, list[str]] = {}
+        for module, version in checksum_index:
+            versions_by_module.setdefault(module, []).append(version)
+        correlations = []
+        for edge in item.get("declared_dependency_edges", []):
+            module = edge["target"]
+            requested_version = edge["requested_version"]
+            checksum = checksum_index.get((module, requested_version))
+            if checksum is None:
+                checksum_status = "no_exact_checksum_record"
+            elif checksum["module_checksum"] and checksum["go_mod_checksum"]:
+                checksum_status = "module_and_go_mod_checksums_present"
+            elif checksum["module_checksum"]:
+                checksum_status = "module_checksum_only"
+            else:
+                checksum_status = "go_mod_checksum_only"
+            correlations.append({
+                "module": module,
+                "requested_version": requested_version,
+                "indirect": edge["indirect"],
+                "checksum_status": checksum_status,
+                "other_checksum_versions": sorted(
+                    version for version in versions_by_module.get(module, [])
+                    if version != requested_version
+                ),
+                "selected_version_determined": False,
+            })
+        item["go_sum_path"] = go_sum["path"]
+        item["go_sum_correlations"] = correlations
+        item["go_sum_correlation_count"] = len(correlations)
+        item["go_sum_correlation_status"] = "checksum_presence_only"
 
     return {
         "analysis_level": "static_dependency_manifest_discovery",
