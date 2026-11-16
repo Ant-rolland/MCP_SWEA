@@ -718,11 +718,11 @@ def _scan_project_secret_formats(
             bytes_scanned += len(raw)
             relative = path.relative_to(root).as_posix()
             matched = False
-            seen_lines: set[tuple[int, int]] = set()
-            for pattern_index, pattern in enumerate((*SECRET_PATTERNS, *CONTEXTUAL_SECRET_PATTERNS)):
+            seen_lines: set[int] = set()
+            for pattern in (*SECRET_PATTERNS, *CONTEXTUAL_SECRET_PATTERNS):
                 for match in pattern.finditer(text):
                     line_number = text.count("\n", 0, match.start()) + 1
-                    marker = (0, line_number)
+                    marker = line_number
                     if marker in seen_lines:
                         continue
                     seen_lines.add(marker)
