@@ -419,7 +419,7 @@ class _SecurityVisitor(ast.NodeVisitor):
                 confidence="HEURISTIC",
                 node=node,
                 message=(
-                    f"pickle.{function.attr} deserializes Python objects; untrusted "
+                    f"pickle.{_call_label(function)} deserializes Python objects; untrusted "
                     "pickle data can execute code."
                 ),
                 recommendation=(
