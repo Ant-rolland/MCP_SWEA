@@ -142,9 +142,9 @@ def test_dependency_analysis_persists_npm_locked_packages_and_edges(tmp_path):
         ).fetchall()
     assert {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows} == {
         ("package.json", "react", "manifest:node"),
-        ("package-lock.json#node_modules/react", "react@19.0.0", "lockfile:npm:package"),
-        ("package-lock.json#node_modules/react-dom", "react-dom@19.0.0", "lockfile:npm:package"),
-        ("package-lock.json#node_modules/react-dom", "react", "lockfile:npm:edge"),
+        ("package-lock.json#package:react@19.0.0", "package-lock.json#package:react@19.0.0", "lockfile:npm:package"),
+        ("package-lock.json#package:react-dom@19.0.0", "package-lock.json#package:react-dom@19.0.0", "lockfile:npm:package"),
+        ("package-lock.json#package:react-dom@19.0.0", "package-lock.json#package:react@19.0.0", "lockfile:npm:edge"),
     }
 
 
@@ -239,3 +239,77 @@ def test_blast_radius_reports_package_impacts_per_relation_without_crossing_grap
         {"identifier": "package-lock.json#node_modules/app", "distance": 1},
     ]
     assert "lockfile:cargo:edge" not in result.result["impact_by_relation"]
+
+
+def test_blast_radius_traverses_normalized_lockfile_package_nodes(tmp_path):
+    project = tmp_path / "npm-graph"
+    project.mkdir()
+    (project / "package-lock.json").write_text(
+        json.dumps({
+            "lockfileVersion": 3,
+            "packages": {
+                "node_modules/app": {
+                    "name": "app", "version": "1.0.0",
+                    "dependencies": {"react-dom": "19.0.0"},
+                },
+                "node_modules/react-dom": {
+                    "name": "react-dom", "version": "19.0.0",
+                    "dependencies": {"react": "19.0.0"},
+                },
+                "node_modules/react": {"name": "react", "version": "19.0.0"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+    service.analyze_dependencies(registered.project_id)
+
+    result = service.check_blast_radius(
+        registered.project_id,
+        "package-lock.json#package:react@19.0.0",
+    )
+    impact = result.result["impact_by_relation"]["lockfile:npm:edge"]
+
+    assert impact["direct_dependents"] == [
+        "package-lock.json#package:react-dom@19.0.0"
+    ]
+    assert impact["transitive_dependents"] == [
+        {"identifier": "package-lock.json#package:react-dom@19.0.0", "distance": 1},
+        {"identifier": "package-lock.json#package:app@1.0.0", "distance": 2},
+    ]
+    assert impact["impact_count"] == 2
+
+
+def test_lockfile_edges_with_ambiguous_target_versions_are_not_linked(tmp_path):
+    project = tmp_path / "ambiguous-npm-graph"
+    project.mkdir()
+    (project / "package-lock.json").write_text(
+        json.dumps({
+            "lockfileVersion": 3,
+            "packages": {
+                "node_modules/parent": {
+                    "name": "parent", "version": "1.0.0",
+                    "dependencies": {"shared": "^1"},
+                },
+                "node_modules/shared": {"name": "shared", "version": "1.0.0"},
+                "node_modules/parent/node_modules/shared": {
+                    "name": "shared", "version": "2.0.0"
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    db = Database(tmp_path / "db.sqlite")
+    service = ProjectService(db)
+    registered = service.initialize(str(project))
+    service.analyze_dependencies(registered.project_id)
+
+    with db.connect() as conn:
+        edges = conn.execute(
+            "SELECT COUNT(*) FROM dependencies WHERE project_id = ? "
+            "AND dependency_type = 'lockfile:npm:edge'",
+            (registered.project_id,),
+        ).fetchone()[0]
+    assert edges == 0
