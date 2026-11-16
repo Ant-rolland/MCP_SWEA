@@ -108,3 +108,33 @@ def test_risk_summary_marks_truncated_node_source_scan_as_incomplete(tmp_path):
     architecture = summary.result["domains"][0]
     assert architecture["domain"] == "architecture"
     assert architecture["scan_complete"] is False
+
+
+def test_risk_summary_keeps_latest_assessment_per_analysis_type(tmp_path):
+    project = tmp_path / "multi-analysis"
+    project.mkdir()
+    (project / "package.json").write_text(
+        '{"dependencies":{"react":"^18"}}', encoding="utf-8"
+    )
+    (project / "main.py").write_text("import os\n", encoding="utf-8")
+    service = ProjectService(Database(tmp_path / "swea.sqlite"))
+    registered = service.initialize(str(project))
+
+    service.analyze_architecture(registered.project_id)
+    service.analyze_dependencies(registered.project_id)
+    service.analyze_architecture(registered.project_id)
+
+    summary = service.get_risk_summary(registered.project_id)
+
+    assert summary.result["domains_assessed"] == 1
+    assert summary.result["analyses_assessed"] == 2
+    architecture = summary.result["domains"][0]
+    assert architecture["domain"] == "architecture"
+    assert architecture["analysis_count"] == 2
+    assert set(architecture["analysis_levels"]) == {
+        "python_static_import_graph",
+        "static_dependency_manifest_discovery",
+    }
+    assert {
+        item["analysis_level"] for item in summary.result["analyses"]
+    } == set(architecture["analysis_levels"])
