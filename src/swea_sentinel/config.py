@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -68,7 +68,11 @@ class Settings(StrictSettings):
 
 
 def load_settings(path: str | Path | None = None) -> Settings:
-    config_path = Path(path or os.getenv("SWEA_CONFIG_PATH", "config/default.yaml")).expanduser()
+    config_path_value = (
+        path if path is not None
+        else os.getenv("SWEA_CONFIG_PATH") or "config/default.yaml"
+    )
+    config_path = Path(config_path_value).expanduser()
     raw: dict[str, object] = {}
     if config_path.is_file():
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
@@ -79,7 +83,9 @@ def load_settings(path: str | Path | None = None) -> Settings:
     if value := os.getenv("SWEA_DB_PATH"):
         settings.storage.path = value
     if value := os.getenv("SWEA_HTTP_HOST"):
-        settings.server.transports.streamable_http.host = value
+        settings.server.transports.streamable_http.host = cast(
+            Literal["127.0.0.1", "localhost", "::1"], value
+        )
     if value := os.getenv("SWEA_HTTP_PORT"):
         settings.server.transports.streamable_http.port = int(value)
     return settings
