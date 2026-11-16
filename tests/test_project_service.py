@@ -180,8 +180,8 @@ def test_dependency_analysis_persists_go_declarations_and_non_node_lockfiles(tmp
     stored = {(row["source_path"], row["target_name"], row["dependency_type"]) for row in rows}
     assert ("go.mod#example.com/service", "example.com/lib@v1.2.3", "manifest:go:edge") in stored
     assert ("go.mod#example.com/service", "example.com/helper@v0.8.0", "manifest:go:edge") in stored
-    assert ("go.sum#example.com/lib@v1.2.3", "example.com/lib@v1.2.3", "lockfile:go:package") in stored
-    assert ("go.sum#example.com/helper@v0.8.0", "example.com/helper@v0.8.0", "lockfile:go:package") in stored
+    assert ("go.sum#package:example.com/lib@v1.2.3", "go.sum#package:example.com/lib@v1.2.3", "lockfile:go:package") in stored
+    assert ("go.sum#package:example.com/helper@v0.8.0", "go.sum#package:example.com/helper@v0.8.0", "lockfile:go:package") in stored
 
 
 def test_dependency_analysis_persists_python_and_cargo_lockfiles(tmp_path):
