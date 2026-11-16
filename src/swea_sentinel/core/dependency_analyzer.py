@@ -328,6 +328,50 @@ def _parse_yarn_lockfile(content: bytes) -> dict[str, Any]:
     return {'lockfile_version': version, 'locked_packages': packages, 'locked_package_count': len(packages), 'locked_dependency_edges': edges, 'locked_dependency_edge_count': len(edges)}
 
 
+def _parse_python_lockfile(path: Path, content: bytes) -> dict[str, Any]:
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    if path.name == 'poetry.lock':
+        data = tomllib.loads(content.decode('utf-8-sig'))
+        records = data.get('package', [])
+        if not isinstance(records, list):
+            raise ValueError('Poetry package section must be an array')
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            name, version = record.get('name'), record.get('version')
+            if not isinstance(name, str) or not isinstance(version, str):
+                continue
+            install_path = name + '@' + version
+            packages.append({'name': name, 'version': version, 'install_path': install_path})
+            deps = record.get('dependencies', {})
+            if isinstance(deps, dict):
+                for target in sorted(deps):
+                    edges.append({'source': name, 'target': str(target), 'source_install_path': install_path})
+    else:
+        data = json.loads(content.decode('utf-8-sig'))
+        if not isinstance(data, dict):
+            raise ValueError('Pipfile.lock root must be an object')
+        for section in ('default', 'develop'):
+            records = data.get(section, {})
+            if not isinstance(records, dict):
+                continue
+            for name, record in sorted(records.items()):
+                if not isinstance(record, dict):
+                    continue
+                version = record.get('version', 'unknown')
+                version = str(version).lstrip('=')
+                install_path = str(name) + '@' + version
+                packages.append({'name': str(name), 'version': version, 'install_path': install_path})
+                deps = record.get('dependencies', {})
+                if isinstance(deps, dict):
+                    for target in sorted(deps):
+                        edges.append({'source': str(name), 'target': str(target), 'source_install_path': install_path})
+    return {'lockfile_version': 'poetry' if path.name == 'poetry.lock' else 'pipfile',
+            'locked_packages': packages, 'locked_package_count': len(packages),
+            'locked_dependency_edges': edges, 'locked_dependency_edge_count': len(edges)}
+
+
 def _classify(name: str) -> tuple[str, str] | None:
     if name == "package.json":
         return "node", "manifest"
@@ -422,6 +466,8 @@ def analyze_dependency_manifests(
                         lockfile_details = _parse_pnpm_lockfile(content)
                     elif ecosystem == "node" and path.name == "yarn.lock":
                         lockfile_details = _parse_yarn_lockfile(content)
+                    elif ecosystem == "python" and path.name in {"poetry.lock", "Pipfile.lock"}:
+                        lockfile_details = _parse_python_lockfile(path, content)
                     if lockfile_details:
                         packages = lockfile_details.get("locked_packages", [])
                         edges = lockfile_details.get("locked_dependency_edges", [])
