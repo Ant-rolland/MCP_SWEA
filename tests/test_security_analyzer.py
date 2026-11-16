@@ -312,3 +312,29 @@ def test_detects_additional_digitalocean_slack_and_encrypted_key_formats(tmp_pat
         for value in (digitalocean, slack_app, encrypted_key_marker)
     )
 
+def test_detects_context_labelled_api_tokens_in_config_files(tmp_path):
+    api_key = "AbC123" + "xYz987" * 5
+    access_token = "Tkn456" + "mNo321" * 5
+    (tmp_path / ".env.production").write_text(
+        f"PAYMENTS_API_KEY={api_key}\n"
+        f"INTERNAL_ACCESS_TOKEN={access_token}\n"
+        "PUBLIC_API_KEY=replace-with-your-api-key\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "settings.yaml").write_text(
+        f'client_secret: "{api_key}"\n',
+        encoding="utf-8",
+    )
+
+    report = analyze_python_security(tmp_path, ProjectIndexSettings())
+    findings = report["secret_scan"]["findings"]
+
+    assert len(findings) == 3
+    assert {item["line"] for item in findings} == {1, 2}
+    assert all(item["confidence"] == "HIGH_CONFIDENCE" for item in findings)
+    assert all(
+        secret not in item["message"]
+        for item in findings
+        for secret in (api_key, access_token)
+    )
+
