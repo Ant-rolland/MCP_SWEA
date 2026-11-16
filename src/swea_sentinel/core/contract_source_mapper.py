@@ -627,7 +627,7 @@ def discover_python_routes(
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
         "limitations": [
             "Only literal route paths and statically literal HTTP methods in Python decorators or add_api_route/add_url_rule/add_route registration calls are recognized.",
-            "Dynamic route expressions or methods, dynamic router prefixes, transitive cross-module mounts, and non-Python routes are not resolved. Literal APIRouter prefixes and same-file mounts are composed; one-level imported router mounts are composed only when the import, router name, and prefix are statically unique and literal.",
+            "Dynamic route expressions or methods, unresolved or ambiguous router imports, dynamic router prefixes, and non-Python routes are not resolved. Literal APIRouter prefixes and same-file mounts are composed; cross-module mount chains are composed only when every import, router name, and prefix is statically unique and literal.",
             "Route declarations are structural evidence, not proof that a route is registered or reachable at runtime.",
             "Project code is parsed as syntax only; it is never imported or executed.",
         ],
