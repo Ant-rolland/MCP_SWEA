@@ -76,6 +76,8 @@ Evidence records include a source path and SHA-256 hash where available. Source 
 
 ### Code quality
 
+The current Python security checks include explicit TLS verification bypass patterns: `requests`/`httpx` calls with literal `verify=False` and `ssl._create_unverified_context()`. These are high-confidence source-pattern observations, not proof that a network connection is reachable or exploitable. Import aliases and indirect wrappers are not resolved.
+
 The current Python checks cover only:
 - Mutable default arguments.
 - Bare `except` handlers.
