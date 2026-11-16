@@ -7,9 +7,8 @@ import os
 import re
 import time
 from collections import deque
-from pathlib import PurePosixPath
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from swea_sentinel.config import ProjectIndexSettings
@@ -43,7 +42,7 @@ class ProjectService:
     def initialize(self, raw_path: str, name: str | None = None) -> ToolResult:
         root = self._safe_root(raw_path)
         project_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         project_name = name or root.name or "project"
         with self.db.connect() as conn:
             existing = conn.execute(
@@ -126,7 +125,7 @@ class ProjectService:
             if truncated_reason:
                 break
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         snapshot_id = str(uuid4())
         with self.db.connect() as conn:
             conn.execute(
@@ -211,7 +210,7 @@ class ProjectService:
         _, root = self._project(project_id)
         report = analyze_python_imports(root, self.index_settings)
         assessment_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         file_hashes = report.pop("file_hashes")
         evidence = [
             Evidence(
@@ -405,7 +404,7 @@ class ProjectService:
         report = analyze_dependency_manifests(root, self.index_settings)
         python_import_report = analyze_python_imports(root, self.index_settings)
         assessment_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         evidence = [
             Evidence(
                 kind="dependency_manifest",
@@ -475,9 +474,12 @@ class ProjectService:
                 for package in packages:
                     packages_by_name.setdefault(package["name"], []).append(package)
 
-                def package_node(package: dict[str, str]) -> str:
+                def package_node(
+                    package: dict[str, str],
+                    current_lockfile_path: str = lockfile_path,
+                ) -> str:
                     coordinate = f"{package['name']}@{package['version']}"
-                    return f"{lockfile_path}#package:{coordinate}"
+                    return f"{current_lockfile_path}#package:{coordinate}"
 
                 for package in packages:
                     node = package_node(package)
@@ -567,7 +569,7 @@ class ProjectService:
         _, root = self._project(project_id)
         report = analyze_python_security(root, self.index_settings)
         assessment_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         evidence_by_path = {
             relative: Evidence(
                 kind="python_security_source",
@@ -650,7 +652,7 @@ class ProjectService:
         _, root = self._project(project_id)
         report = analyze_python_code_quality(root, self.index_settings)
         assessment_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         evidence_by_path = {
             relative: Evidence(
                 kind="python_code_quality_source",
@@ -733,7 +735,7 @@ class ProjectService:
         _, root = self._project(project_id)
         report = analyze_contracts(root)
         assessment_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         evidence_by_path = {
             item["path"]: Evidence(
                 kind="api_data_contract",
