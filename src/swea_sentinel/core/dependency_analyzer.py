@@ -243,9 +243,63 @@ def _parse_pnpm_lockfile(content: bytes) -> dict[str, Any]:
             "locked_dependency_edge_count": len(edges)}
 
 
+def _parse_yarn_classic_lockfile(text: str) -> dict[str, Any]:
+    packages: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    selectors: list[str] = []
+    version: str | None = None
+    dependencies: list[str] = []
+    in_dependencies = False
+
+    def flush() -> None:
+        if not version:
+            return
+        for selector in selectors:
+            value = selector.strip().strip(chr(34)).strip(chr(39))
+            if value.startswith('@'):
+                slash = value.find('/')
+                marker = value.find('@', slash + 1) if slash >= 0 else -1
+            else:
+                marker = value.find('@')
+            if marker <= 0:
+                continue
+            name = value[:marker]
+            packages.append({'name': name, 'version': version, 'install_path': selector.strip()})
+            for target in dependencies:
+                edges.append({'source': name, 'target': target, 'source_install_path': selector.strip()})
+
+    for line in text.splitlines():
+        if line and not line[0].isspace() and line.rstrip().endswith(':'):
+            flush()
+            selectors = [part.strip() for part in line.rstrip()[:-1].split(',')]
+            version = None
+            dependencies = []
+            in_dependencies = False
+            continue
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        if stripped.startswith('version '):
+            version = stripped.split(None, 1)[1].strip(chr(34)).strip(chr(39))
+            in_dependencies = False
+        elif stripped in {'dependencies:', 'optionalDependencies:'}:
+            in_dependencies = True
+        elif in_dependencies and line.startswith('    '):
+            target = stripped.split(':', 1)[0].strip(chr(34)).strip(chr(39))
+            if target and target not in dependencies:
+                dependencies.append(target)
+        elif line.startswith('  ') and not line.startswith('    '):
+            in_dependencies = False
+    flush()
+    return {'lockfile_version': 'classic', 'locked_packages': packages, 'locked_package_count': len(packages), 'locked_dependency_edges': edges, 'locked_dependency_edge_count': len(edges)}
+
+
 def _parse_yarn_lockfile(content: bytes) -> dict[str, Any]:
     import yaml
-    data = yaml.safe_load(content.decode('utf-8-sig'))
+    text = content.decode('utf-8-sig')
+    if '__metadata:' not in text:
+        return _parse_yarn_classic_lockfile(text)
+    data = yaml.safe_load(text)
     if not isinstance(data, dict):
         raise ValueError('Yarn lockfile root must be a mapping')
     metadata = data.get('__metadata', {})
