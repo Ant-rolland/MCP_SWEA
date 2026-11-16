@@ -96,3 +96,42 @@ def test_discovers_literal_framework_route_registration_calls(tmp_path):
     by_path = {item["path"]: item["function"] for item in report["routes"]}
     assert by_path["/fastapi"] == "fast_handler"
     assert by_path["/flask"] == "flask_handler"
+
+
+def test_composes_nested_fastapi_router_prefixes(tmp_path):
+    (tmp_path / "nested.py").write_text(
+        "from fastapi import APIRouter, FastAPI\n"
+        "app = FastAPI()\n"
+        "root_router = APIRouter(prefix='/v1')\n"
+        "items_router = APIRouter(prefix='/items')\n"
+        "@items_router.get('/')\n"
+        "def list_items(): pass\n"
+        "root_router.include_router(items_router, prefix='/catalog')\n"
+        "app.include_router(root_router, prefix='/api')\n"
+        "app.include_router(root_router, prefix='/internal')\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    signatures = {(item["method"], item["path"]) for item in report["routes"]}
+    assert signatures == {
+        ("GET", "/api/v1/catalog/items"),
+        ("GET", "/internal/v1/catalog/items"),
+    }
+
+
+def test_nested_router_with_dynamic_mount_prefix_is_not_guessed(tmp_path):
+    (tmp_path / "nested.py").write_text(
+        "root_router = APIRouter(prefix='/v1')\n"
+        "items_router = APIRouter(prefix='/items')\n"
+        "@items_router.get('/')\n"
+        "def list_items(): pass\n"
+        "root_router.include_router(items_router, prefix=ITEMS_PREFIX)\n"
+        "app.include_router(root_router, prefix='/api')\n",
+        encoding="utf-8",
+    )
+
+    report = discover_python_routes(tmp_path)
+
+    assert report["routes"] == []
